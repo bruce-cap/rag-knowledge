@@ -1,0 +1,21 @@
+spring:
+  application:
+    name: ragbackend
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/rag?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: root
+    password: 123456
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+
+
+# 这一行很重要，MyBatis-Plus 需要确认实体类的位置
+mybatis-plus:
+  type-aliases-package: com.example.ragbackend.entity
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+#mybatis-plus:
+#  configuration:
+#    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl # 开启控制台 SQL 日志，方便调试
+#    map-underscore-to-camel-case: true
