@@ -88,6 +88,39 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-security</artifactId>
 		</dependency>
+
+
+<!--		&lt;!&ndash; LangChain4j &ndash;&gt;-->
+<!--		<dependency>-->
+<!--			<groupId>dev.langchain4j</groupId>-->
+<!--			<artifactId>langchain4j</artifactId>-->
+<!--			<version>0.35.0</version>-->
+<!--		</dependency>-->
+
+<!--		&lt;!&ndash; OpenAI兼容接口（通义千问用这个） &ndash;&gt;-->
+		<dependency>
+			<groupId>dev.langchain4j</groupId>
+			<artifactId>langchain4j-open-ai</artifactId>
+			<version>0.35.0</version>
+		</dependency>
+
+<!--		<dependency>-->
+<!--			<groupId>dev.langchain4j</groupId>-->
+<!--			<artifactId>langchain4j-ollama-spring-boot-starter</artifactId>-->
+<!--			<version>0.31.0</version>-->
+<!--		</dependency>-->
+
+		<dependency>
+			<groupId>dev.langchain4j</groupId>
+			<artifactId>langchain4j-spring-boot-starter</artifactId>
+			<version>0.35.0</version>
+		</dependency>
+
+		<dependency>
+			<groupId>dev.langchain4j</groupId>
+			<artifactId>langchain4j-ollama</artifactId>
+			<version>0.35.0</version>
+		</dependency>
 	</dependencies>
 
 
