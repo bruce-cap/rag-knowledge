@@ -11,8 +11,11 @@ import com.example.ragbackend.service.UserService;
 import com.example.ragbackend.utils.JwtUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Bean;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletResponse;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -25,7 +28,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
 
     @Override
-    public Result<?> login(LoginDTO loginDTO) {
+    public Result<?> login(LoginDTO loginDTO, HttpServletResponse response) {
         // 1. 查找用户
         User user = this.getOne(new LambdaQueryWrapper<User>()
                 .eq(User::getUsername, loginDTO.getUsername()));
@@ -36,13 +39,34 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         }
 
         // 3. 生成令牌
-        String token = JwtUtils.createToken(user.getUsername());
+        String token = JwtUtils.createToken(user.getUsername(), user.getId());
+
+        // 4. 设置 HttpOnly Cookie
+        Cookie cookie = new Cookie("jwt_token", token);
+        cookie.setHttpOnly(true);
+        cookie.setSecure(false); // 开发环境用 false，生产环境用 true
+        cookie.setPath("/");
+        cookie.setMaxAge(86400);
+        response.addCookie(cookie);
 
         Map<String, Object> map = new HashMap<>();
         map.put("token", token);
         map.put("username", user.getUsername());
 
         return Result.success(map);
+    }
+
+    @Override
+    public Result<?> logout(HttpServletResponse response) {
+        // 清除名为 jwt_token 的 Cookie
+        Cookie cookie = new Cookie("jwt_token", null);
+        cookie.setHttpOnly(true);
+        cookie.setSecure(false); // 与登录处的配置保持一致
+        cookie.setPath("/");
+        cookie.setMaxAge(0); // 设置有效期为0以让浏览器立即删除该Cookie
+        response.addCookie(cookie);
+
+        return Result.success("成功退出登录");
     }
 
     @Override

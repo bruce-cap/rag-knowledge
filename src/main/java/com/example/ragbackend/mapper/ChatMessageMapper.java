@@ -1,14 +1,11 @@
 package com.example.ragbackend.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.example.ragbackend.entity.ChatMessage;
+import com.example.ragbackend.entity.ChatMessageEntity;
 import org.apache.ibatis.annotations.Mapper;
-import org.apache.ibatis.annotations.Select;
-import java.util.List;
+
 
 @Mapper
-public interface ChatMessageMapper extends BaseMapper<ChatMessage> {
-
-    @Select("SELECT * FROM chat_message WHERE session_id = #{sessionId} ORDER BY create_time DESC LIMIT #{limit}")
-    List<ChatMessage> findRecentMessages(Long sessionId, Integer limit);
+public interface ChatMessageMapper extends BaseMapper<ChatMessageEntity> {
+    // 如果以后需要自定义复杂的统计 SQL，可以在这里写方法并在 XML 中实现
 }

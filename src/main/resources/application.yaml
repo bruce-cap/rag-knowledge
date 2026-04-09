@@ -14,7 +14,11 @@ spring:
 mybatis-plus:
   type-aliases-package: com.example.ragbackend.entity
   configuration:
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+#mybatis-plus:
+#  type-aliases-package: com.example.ragbackend.entity
+#  configuration:
+#    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
 #mybatis-plus:
 #  configuration:
 #    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl # 开启控制台 SQL 日志，方便调试
@@ -29,6 +33,6 @@ langchain4j:
       model-name: qwen2.5:1.5b
       temperature: 0.7
 
-#logging:
-#  level:
-#    org.springframework.security: DEBUG
+logging:
+  level:
+    com.example.ragbackend.mapper: WARN

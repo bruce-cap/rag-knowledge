@@ -5,6 +5,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -13,32 +14,47 @@ import java.io.IOException;
 import java.util.Collections;
 
 @Component
+@Slf4j
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
+        log.info("正在拦截请求: {}", request.getRequestURI());
+        String token = null;
 
-        // 1. 从请求头获取 Authorization
+        // 1. 优先从 Header 获取 (Authorization: Bearer <token>)
         String authHeader = request.getHeader("Authorization");
-
-        // 2. 校验 Header 格式（必须以 Bearer 开头）
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
-            String token = authHeader.substring(7); // 截取掉 "Bearer " 后的部分
+            token = authHeader.substring(7);
+        }
 
+        // 2. 如果 Header 中没有，则尝试从 Cookie 中获取
+        if (token == null && request.getCookies() != null) {
+            for (jakarta.servlet.http.Cookie cookie : request.getCookies()) {
+                if ("jwt_token".equals(cookie.getName())) {
+                    token = cookie.getValue();
+                    break;
+                }
+            }
+        }
+
+        // 3. 如果找到了 token，进行校验和上下文设置
+        if (token != null) {
             try {
-                // 3. 解析并校验 Token（利用你之前的 JwtUtils）
-                // 这里的 validateToken 需要在 JwtUtils 里补充一个方法（见下方步骤 3）
                 if (JwtUtils.validateToken(token)) {
                     String username = JwtUtils.getUsernameFromToken(token);
+                    Long userId = JwtUtils.getUserIdFromToken(token);
 
-                    // 4. 构建认证对象并存入 Security 上下文
+                    // 构建认证对象
+                    // 注意：我们将 userId 存放在 credentials 位置，方便 SecurityUtils 获取
                     UsernamePasswordAuthenticationToken authentication =
-                            new UsernamePasswordAuthenticationToken(username, null, Collections.emptyList());
+                            new UsernamePasswordAuthenticationToken(username, userId, Collections.emptyList());
+
                     SecurityContextHolder.getContext().setAuthentication(authentication);
                 }
             } catch (Exception e) {
-                // Token 无效或过期时返回401
+                // Token 无效或解析失败
                 response.setStatus(401);
                 response.setContentType("application/json;charset=UTF-8");
                 response.getWriter().write("{\"code\":401,\"message\":\"未授权或Token无效\"}");
@@ -46,7 +62,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
         }
 
-        // 继续执行后续的过滤器逻辑
+        // 继续执行后续逻辑
         filterChain.doFilter(request, response);
     }
 }
