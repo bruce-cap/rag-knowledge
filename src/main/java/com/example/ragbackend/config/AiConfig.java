@@ -3,11 +3,13 @@ package com.example.ragbackend.config;
 import com.example.ragbackend.service.ChatService;
 import com.example.ragbackend.service.PersistentChatMemoryStore;
 
+import dev.langchain4j.model.ollama.OllamaStreamingChatModel;
 import dev.langchain4j.memory.chat.ChatMemoryProvider;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.ollama.OllamaChatModel;
 import dev.langchain4j.service.AiServices;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -17,8 +19,32 @@ public class AiConfig {
     @Autowired
     private PersistentChatMemoryStore persistentChatMemoryStore;
 
-    @Autowired
-    private OllamaChatModel ollamaChatModel;
+    @Bean
+    public OllamaChatModel ollamaChatModel() {
+        return OllamaChatModel.builder()
+                .baseUrl(baseUrl)
+                .modelName(modelName)
+                .temperature(temperature)
+                .build();
+    }
+
+    @Value("${langchain4j.ollama.chat-model.base-url}")
+    private String baseUrl;
+
+    @Value("${langchain4j.ollama.chat-model.model-name}")
+    private String modelName;
+
+    @Value("${langchain4j.ollama.chat-model.temperature}")
+    private Double temperature;
+
+    @Bean
+    public OllamaStreamingChatModel ollamaStreamingChatModel() {
+        return OllamaStreamingChatModel.builder()
+                .baseUrl(baseUrl)
+                .modelName(modelName)
+                .temperature(temperature)
+                .build();
+    }
 
     /**
      * 手动创建并配置 ChatService Bean
@@ -35,7 +61,8 @@ public class AiConfig {
 
         // 2. 使用 AiServices 建造者强行绑定
         return AiServices.builder(ChatService.class)
-                .chatLanguageModel(ollamaChatModel)
+                .chatLanguageModel(ollamaChatModel())
+                .streamingChatLanguageModel(ollamaStreamingChatModel())
                 .chatMemoryProvider(chatMemoryProvider)
                 .build();
     }

@@ -8,6 +8,10 @@ import com.example.ragbackend.service.ChatService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import org.springframework.http.MediaType;
+import dev.langchain4j.service.TokenStream;
+import java.util.Collections;
 
 @Slf4j
 @RestController
@@ -37,6 +41,62 @@ public class ChatController {
         updateSessionTitleIfNew(dto.getSessionId(), dto.getMessage());
 
         return Result.success(aiResponse);
+    }
+
+    @PostMapping(value = "/send/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter sendMessageStream(@RequestBody ChatRequestDTO dto) {
+        log.info("SSE Stream 请求会话: {}, 内容: {}", dto.getSessionId(), dto.getMessage());
+
+        // 设置较长超时时间（例如 60 分钟），Ollama慢的话也不会轻易断开
+        SseEmitter emitter = new SseEmitter(3600000L);
+
+        if (dto.getSessionId() == null) {
+            try {
+                emitter.send(SseEmitter.event().name("error").data("会话ID不能为空"));
+                emitter.complete();
+            } catch (Exception e) {}
+            return emitter;
+        }
+
+        // 超时或断开回调整理
+        emitter.onCompletion(() -> log.info("SSE Connection Completed for Stream."));
+        emitter.onTimeout(() -> {
+            log.warn("SSE Connection Timeout for Stream.");
+            emitter.complete();
+        });
+        emitter.onError((e) -> log.error("SSE Connection Error for Stream.", e));
+
+        // 调用 LangChain4j 的流式接口
+        TokenStream tokenStream = chatService.chatStream(dto.getSessionId(), dto.getMessage());
+
+        tokenStream.onNext(token -> {
+            try {
+                // 将 token 包装为 JSON 以应对换行符导致的断帧
+                emitter.send(SseEmitter.event().data(Collections.singletonMap("text", token)));
+            } catch (Exception e) {
+                log.error("Token 发送失败", e);
+                emitter.completeWithError(e);
+            }
+        }).onComplete(response -> {
+            try {
+                emitter.send(SseEmitter.event().name("finish").data("[DONE]"));
+                emitter.complete();
+
+                // 会话新标题小功能
+                updateSessionTitleIfNew(dto.getSessionId(), dto.getMessage());
+            } catch (Exception e) {
+                log.error("完成流传输异常", e);
+                emitter.completeWithError(e);
+            }
+        }).onError(error -> {
+            log.error("流式输出异常", error);
+            try {
+                emitter.send(SseEmitter.event().name("error").data("生成回复时出错: " + error.getMessage()));
+                emitter.completeWithError(error);
+            } catch (Exception e) {}
+        }).start();
+
+        return emitter;
     }
 
     private void updateSessionTitleIfNew(Long sessionId, String firstContent) {

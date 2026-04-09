@@ -8,6 +8,11 @@ spring:
     password: 123456
     driver-class-name: com.mysql.cj.jdbc.Driver
 
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+
 
 
 # 这一行很重要，MyBatis-Plus 需要确认实体类的位置
@@ -36,3 +41,9 @@ langchain4j:
 logging:
   level:
     com.example.ragbackend.mapper: WARN
+
+minio:
+  endpoint: http://localhost:9000
+  accessKey: minioadmin
+  secretKey: minioadmin
+  bucketName: rag

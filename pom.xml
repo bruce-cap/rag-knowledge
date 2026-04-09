@@ -121,6 +121,13 @@
 			<artifactId>langchain4j-ollama</artifactId>
 			<version>0.35.0</version>
 		</dependency>
+
+		<!-- MinIO -->
+		<dependency>
+			<groupId>io.minio</groupId>
+			<artifactId>minio</artifactId>
+			<version>8.5.9</version>
+		</dependency>
 	</dependencies>
 
 
