@@ -98,11 +98,11 @@
 <!--		</dependency>-->
 
 <!--		&lt;!&ndash; OpenAI兼容接口（通义千问用这个） &ndash;&gt;-->
-		<dependency>
-			<groupId>dev.langchain4j</groupId>
-			<artifactId>langchain4j-open-ai</artifactId>
-			<version>0.35.0</version>
-		</dependency>
+<!--		<dependency>-->
+<!--			<groupId>dev.langchain4j</groupId>-->
+<!--			<artifactId>langchain4j-open-ai</artifactId>-->
+<!--			<version>0.35.0</version>-->
+<!--		</dependency>-->
 
 <!--		<dependency>-->
 <!--			<groupId>dev.langchain4j</groupId>-->
