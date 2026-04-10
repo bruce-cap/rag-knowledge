@@ -50,30 +50,6 @@ public class SecurityConfig {
         return http.build();
     }
 
-    // 配置 CORS
-    /*
-     * 该代码配置了 CORS 跨域策略：
-     * 允许来源：仅允许 http://localhost:5173 前端访问
-     * 允许方法：支持 GET、POST、PUT、DELETE、OPTIONS 请求
-     * 允许所有请求头：设置 * 通配符
-     * 允许携带凭证：支持 Cookie 等认证信息
-     * 预检缓存：浏览器缓存跨域配置 1 小时
-     */
-    // @Bean
-    // public org.springframework.web.cors.CorsConfigurationSource
-    // corsConfigurationSource() {
-    // org.springframework.web.cors.CorsConfiguration configuration = new
-    // org.springframework.web.cors.CorsConfiguration();
-    // configuration.setAllowedOrigins(java.util.List.of("http://localhost:5173"));
-    // configuration.setAllowedMethods(java.util.List.of("GET", "POST", "PUT",
-    // "DELETE", "OPTIONS"));
-    // configuration.setAllowedHeaders(java.util.List.of("*"));
-    // configuration.setAllowCredentials(true);
-    // configuration.setMaxAge(3600L);
-    // org.springframework.web.cors.UrlBasedCorsConfigurationSource source = new
-    // org.springframework.web.cors.UrlBasedCorsConfigurationSource();
-    // source.registerCorsConfiguration("/**", configuration);
-    // return source;
-    // }
+
 
 }

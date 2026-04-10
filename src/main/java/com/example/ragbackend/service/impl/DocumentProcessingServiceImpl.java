@@ -88,15 +88,30 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
                     throw new IllegalStateException("No text segments extracted from document");
                 }
 
-                // 生成 Embedding
-                log.info("开始生成 Embedding, documentId={}, segments={}", documentId, segments.size());
-                List<Embedding> embeddings = dashScopeEmbeddingService.embedSegments(segments);
-                log.info("Embedding 生成完成, documentId={}, embeddings={}", documentId, embeddings.size());
+                // === 关键重构：流水线增量处理 (基于用户建议优化) ===
+                int totalSegments = segments.size();
+                int batchSize = 100; // 每批处理 100 条，平衡速度与稳定性
+                int totalBatches = (int) Math.ceil((double) totalSegments / batchSize);
 
-                // 存入 Chroma
-                log.info("开始存入 Chroma 向量数据库, documentId={}", documentId);
-                embeddingStore.addAll(embeddings, segments);
-                log.info("Chroma 存储完成, documentId={}", documentId);
+                log.info("开始流水线增量处理, documentId={}, 总段数={}, 总批数={}", documentId, totalSegments, totalBatches);
+
+                for (int i = 0; i < totalSegments; i += batchSize) {
+                    int end = Math.min(i + batchSize, totalSegments);
+                    int currentBatch = (i / batchSize) + 1;
+                    List<TextSegment> batchSegments = segments.subList(i, end);
+
+                    log.info("正在处理批次: {}/{} (条目 {}-{})", currentBatch, totalBatches, i, end);
+
+                    // 1. 获取当前批次的向量
+                    List<Embedding> batchEmbeddings = dashScopeEmbeddingService.embedSegments(batchSegments);
+
+                    // 2. 立即将当前批次存入 Chroma
+                    embeddingStore.addAll(batchEmbeddings, batchSegments);
+
+                    log.info("批次完成: {}/{} [进度: {}%]", currentBatch, totalBatches, (int)((double)currentBatch/totalBatches * 100));
+                }
+
+                log.info("Chroma 全量增量存储完成, documentId={}", documentId);
 
                 document.setStatus(2);
                 log.info("========== 文档处理成功 ==========, documentId={}, fileName={}, segments={}",
