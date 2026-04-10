@@ -14,12 +14,11 @@ public interface ChatService {
     你是一个专业的知识库助手。
     如果没有上下文，也要根据用户问题进行回答。
     """)
-        // 使用 @MemoryId 注解，LangChain4j 会自动去 Store 里找对应的历史记录
-    String chat(@MemoryId Long sessionId, @UserMessage String message);
+    String chat(@UserMessage String message);
 
     @SystemMessage("""
     你是一个专业的知识库助手。
     如果没有上下文，也要根据用户问题进行回答。
     """)
-    TokenStream chatStream(@MemoryId Long sessionId, @UserMessage String message);
+    TokenStream chatStream(@UserMessage String message);
 }

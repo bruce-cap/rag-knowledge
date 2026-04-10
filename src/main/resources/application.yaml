@@ -57,3 +57,9 @@ minio:
   accessKey: minioadmin
   secretKey: minioadmin
   bucketName: rag
+
+# RAG 模块核心参数配置
+rag:
+  config:
+    min-score: 0.6    # 相似度阈值
+    max-results: 5    # 最大检索分块数

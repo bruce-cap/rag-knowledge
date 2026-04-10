@@ -13,6 +13,17 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import org.springframework.http.MediaType;
 import dev.langchain4j.service.TokenStream;
+import com.example.ragbackend.entity.ChatMessageEntity;
+import com.example.ragbackend.mapper.ChatMessageMapper;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.memory.ChatMemory;
+import dev.langchain4j.memory.chat.MessageWindowChatMemory;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -28,6 +39,9 @@ public class ChatController {
     @Autowired
     private ChatSessionMapper sessionMapper;
 
+    @Autowired
+    private ChatMessageMapper messageMapper;
+
 
     @PostMapping("/send")
     public Result<String> sendMessage(@RequestBody ChatRequestDTO dto) {
@@ -37,21 +51,30 @@ public class ChatController {
             return Result.error("会话ID不能为空");
         }
 
-        // 每次消息发送都更新会话活跃时间
+        // 1. 同步保存原始用户提问到数据库（此时无 RAG 污染）
+        saveUserMessage(dto.getSessionId(), dto.getMessage());
+
+        // 2. 更新会话活跃时间
         touchSession(dto.getSessionId());
 
-        // 从 Security 上下文获取身份标识
+        // 3. 构建该次请求专用的内存快照（加载历史记录）
+        ChatMemory memory = prepareMemory(dto.getSessionId());
+
+        // 4. 从 Security 上下文获取身份标识
         Long userId = SecurityUtils.getCurrentUserId();
         boolean isAdmin = SecurityUtils.isAdmin();
 
-        // 通过工厂动态创建带上下文的实例
-        ChatService chatService = chatServiceFactory.create(userId, isAdmin, dto.getRagMode());
+        // 5. 通过工厂创建实例（由于已手动 add 历史到 memory，Factory 直接绑定即可）
+        ChatService chatService = chatServiceFactory.create(userId, isAdmin, dto.getRagMode(), memory);
 
         try {
-            // 1. 核心调用
-            String aiResponse = chatService.chat(dto.getSessionId(), dto.getMessage());
+            // 6. 核心调用
+            String aiResponse = chatService.chat(dto.getMessage());
 
-            // 2. 额外小功能：如果是该会话的第一条消息，自动更新会话标题
+            // 7. 保存 AI 响应
+            saveAiMessage(dto.getSessionId(), aiResponse);
+
+            // 8. 如果是第一条消息更新标题
             updateSessionTitleIfNew(dto.getSessionId(), dto.getMessage());
 
             return Result.success(aiResponse);
@@ -65,25 +88,20 @@ public class ChatController {
     public SseEmitter sendMessageStream(@RequestBody ChatRequestDTO dto) {
         log.info("SSE Stream 请求会话: {}, 内容: {}", dto.getSessionId(), dto.getMessage());
 
-        // 每次流式消息开始发送也更新会话活跃时间
-        touchSession(dto.getSessionId());
-
-        // 设置较长超时时间（例如 60 分钟），Ollama慢的话也不会轻易断开
-        SseEmitter emitter = new SseEmitter(3600000L);
-
         if (dto.getSessionId() == null) {
+            SseEmitter emitter = new SseEmitter();
             try {
-                // 错误数据统一为 JSON 格式
-                Map<String, Object> errorBody = new HashMap<>();
-                errorBody.put("code", 400);
-                errorBody.put("message", "会话ID不能为空");
-                emitter.send(SseEmitter.event().name("error").data(errorBody));
+                emitter.send(SseEmitter.event().name("error").data("会话ID不能为空"));
                 emitter.complete();
             } catch (Exception e) {}
             return emitter;
         }
 
-        // 超时或断开回调整理
+        // 1. 同步保存用户原始提问（确保消息不因异常丢失）
+        saveUserMessage(dto.getSessionId(), dto.getMessage());
+        touchSession(dto.getSessionId());
+
+        SseEmitter emitter = new SseEmitter(3600000L);
         emitter.onCompletion(() -> log.info("SSE Connection Completed for Stream."));
         emitter.onTimeout(() -> {
             log.warn("SSE Connection Timeout for Stream.");
@@ -91,46 +109,89 @@ public class ChatController {
         });
         emitter.onError((e) -> log.error("SSE Connection Error for Stream.", e));
 
-        // 从 Security 上下文获取身份标识
+        // 2. 准备内存与服务
+        ChatMemory memory = prepareMemory(dto.getSessionId());
         Long userId = SecurityUtils.getCurrentUserId();
         boolean isAdmin = SecurityUtils.isAdmin();
+        ChatService chatService = chatServiceFactory.create(userId, isAdmin, dto.getRagMode(), memory);
 
-        // 通过工厂动态创建带上下文的实例
-        ChatService chatService = chatServiceFactory.create(userId, isAdmin, dto.getRagMode());
-
-        TokenStream tokenStream = chatService.chatStream(dto.getSessionId(), dto.getMessage());
+        // 3. 启动流
+        TokenStream tokenStream = chatService.chatStream(dto.getMessage());
 
         tokenStream.onNext(token -> {
             try {
-                // 将 token 包装为 JSON 以应对换行符导致的断帧
                 emitter.send(SseEmitter.event().data(Collections.singletonMap("text", token)));
             } catch (Exception e) {
-                log.error("Token 发送失败", e);
-                emitter.completeWithError(e);
+                log.error("SSE Token 发送失败: {}", e.getMessage());
             }
         }).onComplete(response -> {
             try {
+                // 优先发送结束信号，降低前端感知延迟
                 emitter.send(SseEmitter.event().name("finish").data("[DONE]"));
                 emitter.complete();
-
-                // 会话新标题小功能
+                
+                // 异步/后台持久化 AI 响应，不阻塞 SSE 完成
+                if (response != null && response.content() != null) {
+                    saveAiMessage(dto.getSessionId(), response.content().text());
+                }
                 updateSessionTitleIfNew(dto.getSessionId(), dto.getMessage());
             } catch (Exception e) {
-                log.error("完成流传输异常", e);
-                emitter.completeWithError(e);
+                log.error("SSE 完成回调处理异常: {}", e.getMessage());
+                try { emitter.complete(); } catch (Exception ignored) {}
             }
         }).onError(error -> {
-            log.error("流式输出异常", error);
+            log.error("AI 生成流发生错误: {}", error.getMessage());
             try {
-                Map<String, Object> errorBody = new HashMap<>();
-                errorBody.put("code", 500);
-                errorBody.put("message", "生成回复时出错: " + error.getMessage());
-                emitter.send(SseEmitter.event().name("error").data(errorBody));
+                emitter.send(SseEmitter.event().name("error").data(error.getMessage()));
                 emitter.completeWithError(error);
-            } catch (Exception e) {}
+            } catch (Exception e) {
+                try { emitter.complete(); } catch (Exception ignored) {}
+            }
         }).start();
 
         return emitter;
+    }
+
+    /**
+     * 手动加载历史记录并灌入 ChatMemory
+     */
+    private ChatMemory prepareMemory(Long sessionId) {
+        ChatMemory memory = MessageWindowChatMemory.withMaxMessages(10);
+        
+        List<ChatMessageEntity> dbMessages = messageMapper.selectList(
+                new LambdaQueryWrapper<ChatMessageEntity>()
+                        .eq(ChatMessageEntity::getSessionId, sessionId)
+                        .orderByAsc(ChatMessageEntity::getCreateTime)
+        );
+
+        if (dbMessages != null) {
+            for (ChatMessageEntity dbMsg : dbMessages) {
+                if ("user".equalsIgnoreCase(dbMsg.getRole())) {
+                    memory.add(new UserMessage(dbMsg.getContent()));
+                } else if ("assistant".equalsIgnoreCase(dbMsg.getRole())) {
+                    memory.add(new AiMessage(dbMsg.getContent()));
+                }
+            }
+        }
+        return memory;
+    }
+
+    private void saveUserMessage(Long sessionId, String content) {
+        ChatMessageEntity entity = new ChatMessageEntity();
+        entity.setSessionId(sessionId);
+        entity.setRole("user");
+        entity.setContent(content);
+        entity.setCreateTime(LocalDateTime.now());
+        messageMapper.insert(entity);
+    }
+
+    private void saveAiMessage(Long sessionId, String content) {
+        ChatMessageEntity entity = new ChatMessageEntity();
+        entity.setSessionId(sessionId);
+        entity.setRole("assistant");
+        entity.setContent(content);
+        entity.setCreateTime(LocalDateTime.now());
+        messageMapper.insert(entity);
     }
 
     /**
@@ -156,6 +217,7 @@ public class ChatController {
             sessionMapper.updateById(session);
         }
     }
+
 
 
 

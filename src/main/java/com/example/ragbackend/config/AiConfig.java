@@ -1,6 +1,6 @@
 package com.example.ragbackend.config;
 
-import com.example.ragbackend.service.PersistentChatMemoryStore;
+
 import com.example.ragbackend.service.DashScopeEmbeddingService;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.ollama.OllamaChatModel;
@@ -15,8 +15,7 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class AiConfig {
 
-    @Autowired
-    private PersistentChatMemoryStore persistentChatMemoryStore;
+
 
     @Autowired
     private DashScopeEmbeddingService dashScopeEmbeddingService;
