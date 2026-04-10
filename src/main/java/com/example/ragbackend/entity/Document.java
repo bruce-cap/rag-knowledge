@@ -30,4 +30,9 @@ public class Document {
     private LocalDateTime createTime;
 
     private LocalDateTime updateTime;
+
+    /**
+     * 是否公开（1-公开, 0-私有）
+     */
+    private Boolean isPublic;
 }

@@ -17,5 +17,5 @@ public class User {
     private String password;
     private LocalDateTime createTime;
     private String email;
-
+    private String role; // ADMIN or USER
 }

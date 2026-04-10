@@ -13,4 +13,9 @@ public class ChatRequestDTO {
      * 用户输入的聊天内容
      */
     private String message;
+
+    /**
+     * 是否开启 RAG 知识库检索模式
+     */
+    private Boolean ragMode = true;
 }

@@ -1,6 +1,8 @@
 package com.example.ragbackend.config;
 
+import com.example.ragbackend.common.Result;
 import com.example.ragbackend.utils.JwtUtils;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -12,6 +14,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.util.Collections;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import java.util.List;
 
 @Component
 @Slf4j
@@ -45,19 +49,26 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 if (JwtUtils.validateToken(token)) {
                     String username = JwtUtils.getUsernameFromToken(token);
                     Long userId = JwtUtils.getUserIdFromToken(token);
+                    String role = JwtUtils.getRoleFromToken(token);
+
+                    // 构建权限列表
+                    List<SimpleGrantedAuthority> authorities = Collections.singletonList(
+                            new SimpleGrantedAuthority("ROLE_" + (role != null ? role : "USER"))
+                    );
 
                     // 构建认证对象
                     // 注意：我们将 userId 存放在 credentials 位置，方便 SecurityUtils 获取
                     UsernamePasswordAuthenticationToken authentication =
-                            new UsernamePasswordAuthenticationToken(username, userId, Collections.emptyList());
+                            new UsernamePasswordAuthenticationToken(username, userId, authorities);
 
                     SecurityContextHolder.getContext().setAuthentication(authentication);
                 }
             } catch (Exception e) {
-                // Token 无效或解析失败
+                // Token 无效或解析失败，使用统一的 Result 结构返回，保证和其他接口格式一致
                 response.setStatus(401);
                 response.setContentType("application/json;charset=UTF-8");
-                response.getWriter().write("{\"code\":401,\"message\":\"未授权或Token无效\"}");
+                ObjectMapper objectMapper = new ObjectMapper();
+                response.getWriter().write(objectMapper.writeValueAsString(Result.error(401, "未授权或Token已失效")));
                 return;
             }
         }

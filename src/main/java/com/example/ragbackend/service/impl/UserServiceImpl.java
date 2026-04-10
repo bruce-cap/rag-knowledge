@@ -39,7 +39,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         }
 
         // 3. 生成令牌
-        String token = JwtUtils.createToken(user.getUsername(), user.getId());
+        String token = JwtUtils.createToken(user.getUsername(), user.getId(), user.getRole());
 
         // 4. 设置 HttpOnly Cookie
         Cookie cookie = new Cookie("jwt_token", token);
@@ -52,6 +52,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         Map<String, Object> map = new HashMap<>();
         map.put("token", token);
         map.put("username", user.getUsername());
+        map.put("userId", user.getId());
+        map.put("role", user.getRole());
 
         return Result.success(map);
     }
@@ -109,6 +111,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         user.setUsername(username);
         user.setEmail(email);
         user.setPassword(encoder.encode(password));
+        user.setRole("USER"); // 默认角色
         user.setCreateTime(LocalDateTime.now());
 
         return this.save(user) ? Result.success("注册成功") : Result.error("注册失败");

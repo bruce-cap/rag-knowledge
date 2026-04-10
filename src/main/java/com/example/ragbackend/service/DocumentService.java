@@ -10,10 +10,10 @@ public interface DocumentService extends IService<Document> {
     /**
      * 上传文档到MinIO，并保存元数据到MySQL
      * @param file 上传的文件
-     * @param userId 上传者ID
+     * @param isPublic 是否公开
      * @return 返回上传结果
      */
-    Result<?> uploadDocument(MultipartFile file, Long userId);
+    Result<?> uploadDocument(MultipartFile file, Long userId, Boolean isPublic);
 
     /**
      * 查询用户的所有上传文档

@@ -2,7 +2,9 @@ package com.example.ragbackend.service;
 
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.example.ragbackend.entity.ChatSessionEntity;
 import com.example.ragbackend.mapper.ChatMessageMapper;
+import com.example.ragbackend.mapper.ChatSessionMapper;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -24,6 +26,9 @@ public class PersistentChatMemoryStore implements ChatMemoryStore {
 
     @Autowired
     private ChatMessageMapper chatMessageMapper;
+
+    @Autowired
+    private ChatSessionMapper chatSessionMapper;
 
     // 每次对话开始前，LangChain4j 自动调用此方法获取历史
     @Override
@@ -110,6 +115,13 @@ public class PersistentChatMemoryStore implements ChatMemoryStore {
 
         chatMessageMapper.insert(entity);
         log.info("消息已保存到数据库，ID: {}", entity.getId());
+
+        // 核心优化：更新会话的最后活跃时间，以便前端置顶
+        ChatSessionEntity session = new ChatSessionEntity();
+        session.setId(sessionId);
+        session.setUpdateTime(LocalDateTime.now());
+        chatSessionMapper.updateById(session);
+        log.info("会话 {} 的最后活跃时间已更新", sessionId);
     }
 
     @Override

@@ -13,11 +13,12 @@ public class JwtUtils {
     private static final SecretKey KEY = Keys.hmacShaKeyFor(SECRET_STR.getBytes());
     private static final long EXPIRATION = 86400000; // 24小时
 
-    // 登录时调用：传入 username 和 userId
-    public static String createToken(String username, Long userId) {
+    // 登录时调用：传入 username、userId 和角色
+    public static String createToken(String username, Long userId, String role) {
         return Jwts.builder()
                 .subject(username)
                 .claim("userId", userId) // 存入用户ID
+                .claim("role", role)      // 存入角色
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + EXPIRATION))
                 .signWith(KEY)
@@ -31,6 +32,15 @@ public class JwtUtils {
                 .parseSignedClaims(token)
                 .getPayload()
                 .get("userId", Long.class);
+    }
+
+    public static String getRoleFromToken(String token) {
+        return Jwts.parser()
+                .verifyWith(KEY)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload()
+                .get("role", String.class);
     }
 
     // 在 JwtUtils 类中添加以下静态方法

@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
+import dev.langchain4j.model.output.Response;
 
 @Slf4j
 @Service
@@ -34,6 +35,11 @@ public class DashScopeEmbeddingServiceImpl implements DashScopeEmbeddingService 
 
     @Value("${langchain4j.dashscope.embedding-model.batch-size:10}")
     private Integer batchSize;
+
+    @Override
+    public Response<List<Embedding>> embedAll(List<TextSegment> textSegments) {
+        return Response.from(embedSegments(textSegments));
+    }
 
     @Override
     public List<Embedding> embedSegments(List<TextSegment> segments) {

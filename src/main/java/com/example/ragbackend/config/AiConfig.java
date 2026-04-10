@@ -11,6 +11,17 @@ import dev.langchain4j.service.AiServices;
 import dev.langchain4j.store.embedding.EmbeddingStore;
 import dev.langchain4j.store.embedding.chroma.ChromaEmbeddingStore;
 import dev.langchain4j.data.segment.TextSegment;
+import dev.langchain4j.rag.content.retriever.ContentRetriever;
+import dev.langchain4j.rag.content.retriever.EmbeddingStoreContentRetriever;
+import dev.langchain4j.rag.query.Query;
+import dev.langchain4j.rag.content.Content;
+import dev.langchain4j.store.embedding.filter.Filter;
+import static dev.langchain4j.store.embedding.filter.MetadataFilterBuilder.metadataKey;
+import com.example.ragbackend.utils.SecurityUtils;
+import java.util.List;
+import java.util.Collections;
+import com.example.ragbackend.utils.RagContextHolder;
+import com.example.ragbackend.service.DashScopeEmbeddingService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -22,12 +33,16 @@ public class AiConfig {
     @Autowired
     private PersistentChatMemoryStore persistentChatMemoryStore;
 
+    @Autowired
+    private DashScopeEmbeddingService dashScopeEmbeddingService;
+
     @Bean
     public OllamaChatModel ollamaChatModel() {
         return OllamaChatModel.builder()
                 .baseUrl(baseUrl)
                 .modelName(modelName)
                 .temperature(temperature)
+                .timeout(java.time.Duration.ofMinutes(2))
                 .build();
     }
 
@@ -46,6 +61,7 @@ public class AiConfig {
                 .baseUrl(baseUrl)
                 .modelName(modelName)
                 .temperature(temperature)
+                .timeout(java.time.Duration.ofMinutes(10))
                 .build();
     }
 
@@ -73,11 +89,39 @@ public class AiConfig {
                 .chatMemoryStore(persistentChatMemoryStore)
                 .build();
 
-        // 2. 使用 AiServices 建造者强行绑定
+        ContentRetriever dynamicRetriever = new ContentRetriever() {
+            @Override
+            public List<Content> retrieve(Query query) {
+                // 检查当前会话是否开启了 RAG 模式
+                if (!RagContextHolder.isRagMode()) {
+                    return Collections.emptyList();
+                }
+                Long userId = SecurityUtils.getCurrentUserId();
+
+                // 核心逻辑升级：管理员可以检索全库，普通用户只能查“自己+公开”
+                Filter filter = null;
+                if (!SecurityUtils.isAdmin()) {
+                    filter = metadataKey("user_id").isEqualTo(String.valueOf(userId))
+                            .or(metadataKey("is_public").isEqualTo("true"));
+                }
+
+                EmbeddingStoreContentRetriever delegate = EmbeddingStoreContentRetriever.builder()
+                        .embeddingStore(embeddingStore())
+                        .embeddingModel(dashScopeEmbeddingService)
+                        .filter(filter)
+                        .maxResults(5) // 取最相关的 5 段
+                        .minScore(0.7)
+                        .build();
+                return delegate.retrieve(query);
+            }
+        };
+
+        // 3. 使用 AiServices 建造者强行绑定
         return AiServices.builder(ChatService.class)
                 .chatLanguageModel(ollamaChatModel())
                 .streamingChatLanguageModel(ollamaStreamingChatModel())
                 .chatMemoryProvider(chatMemoryProvider)
+                .contentRetriever(dynamicRetriever)
                 .build();
     }
 }

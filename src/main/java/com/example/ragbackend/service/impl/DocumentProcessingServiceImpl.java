@@ -37,8 +37,8 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
 
     @Override
     @Async("documentProcessingExecutor")
-    public void processDocumentAsync(Long documentId) {
-        log.info("========== 开始异步处理文档 ==========, documentId={}", documentId);
+    public void processDocumentAsync(Long documentId, Boolean isPublic) {
+        log.info("Start processing uploaded document asynchronously, documentId={}, isPublic={}", documentId, isPublic);
 
         Document document = documentMapper.selectById(documentId);
         if (document == null) {
@@ -72,7 +72,17 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
                 // 分块
                 log.info("开始文档分块, documentId={}, chunkSize=500, overlap=50", documentId);
                 List<TextSegment> segments = DocumentSplitters.recursive(500, 50).split(parsedDocument);
-                log.info("文档分块完成, documentId={}, segments 数量={}", documentId, segments.size());
+                
+                // 为每个分块添加元数据，方便后续按文件删除或按用户过滤
+                if (segments != null) {
+                    segments.forEach(segment -> {
+                        segment.metadata().add("document_id", String.valueOf(documentId));
+                        segment.metadata().add("user_id", String.valueOf(document.getUserId()));
+                        segment.metadata().add("is_public", String.valueOf(isPublic != null && isPublic));
+                    });
+                }
+                
+                log.info("文档分块完成, documentId={}, segments 数量={}", documentId, segments == null ? 0 : segments.size());
 
                 if (segments == null || segments.isEmpty()) {
                     throw new IllegalStateException("No text segments extracted from document");
