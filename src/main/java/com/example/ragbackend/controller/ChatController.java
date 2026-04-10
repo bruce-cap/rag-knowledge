@@ -5,6 +5,8 @@ import com.example.ragbackend.entity.ChatSessionEntity;
 import com.example.ragbackend.mapper.ChatSessionMapper;
 import com.example.ragbackend.model.dto.ChatRequestDTO;
 import com.example.ragbackend.service.ChatService;
+import com.example.ragbackend.service.ChatServiceFactory;
+import com.example.ragbackend.utils.SecurityUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -14,7 +16,6 @@ import dev.langchain4j.service.TokenStream;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-import com.example.ragbackend.utils.RagContextHolder;
 
 @Slf4j
 @RestController
@@ -22,7 +23,7 @@ import com.example.ragbackend.utils.RagContextHolder;
 public class ChatController {
 
     @Autowired
-    private ChatService chatService;
+    private ChatServiceFactory chatServiceFactory;
 
     @Autowired
     private ChatSessionMapper sessionMapper;
@@ -39,8 +40,13 @@ public class ChatController {
         // 每次消息发送都更新会话活跃时间
         touchSession(dto.getSessionId());
 
-        // 将 ragMode 状态存入 ThreadLocal
-        RagContextHolder.setRagMode(dto.getRagMode());
+        // 从 Security 上下文获取身份标识
+        Long userId = SecurityUtils.getCurrentUserId();
+        boolean isAdmin = SecurityUtils.isAdmin();
+
+        // 通过工厂动态创建带上下文的实例
+        ChatService chatService = chatServiceFactory.create(userId, isAdmin, dto.getRagMode());
+
         try {
             // 1. 核心调用
             String aiResponse = chatService.chat(dto.getSessionId(), dto.getMessage());
@@ -49,8 +55,9 @@ public class ChatController {
             updateSessionTitleIfNew(dto.getSessionId(), dto.getMessage());
 
             return Result.success(aiResponse);
-        } finally {
-            RagContextHolder.clear();
+        } catch (Exception e) {
+            log.error("对话失败", e);
+            return Result.error("AI 忙碌中: " + e.getMessage());
         }
     }
 
@@ -84,16 +91,14 @@ public class ChatController {
         });
         emitter.onError((e) -> log.error("SSE Connection Error for Stream.", e));
 
-        // 注入当前会话的 RAG 模式上下文
-        RagContextHolder.setRagMode(dto.getRagMode());
-        TokenStream tokenStream;
-        try {
-            // 调用 LangChain4j 的流式接口
-            tokenStream = chatService.chatStream(dto.getSessionId(), dto.getMessage());
-        } finally {
-            // LangChain4j 在调用这句代码时会立马同步进行 Retriever 搜索，所以在这下面清理是安全的
-            RagContextHolder.clear();
-        }
+        // 从 Security 上下文获取身份标识
+        Long userId = SecurityUtils.getCurrentUserId();
+        boolean isAdmin = SecurityUtils.isAdmin();
+
+        // 通过工厂动态创建带上下文的实例
+        ChatService chatService = chatServiceFactory.create(userId, isAdmin, dto.getRagMode());
+
+        TokenStream tokenStream = chatService.chatStream(dto.getSessionId(), dto.getMessage());
 
         tokenStream.onNext(token -> {
             try {
