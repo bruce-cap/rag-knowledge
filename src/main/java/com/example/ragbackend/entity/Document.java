@@ -23,7 +23,7 @@ public class Document {
     private Long fileSize;
 
     /**
-     * 状态：0-上传成功，1-解析中，2-解析完成
+     * 0-上传成功, 1-处理中, 2-处理完成, 3-处理失败
      */
     private Integer status;
 

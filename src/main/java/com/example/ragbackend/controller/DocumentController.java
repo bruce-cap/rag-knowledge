@@ -27,12 +27,14 @@ public class DocumentController {
     @GetMapping("/list")
     public Result<?> list() {
         Long userId = SecurityUtils.getCurrentUserId();
+        log.info("用户 {} 查询文件列表", userId);
         return documentService.listDocuments(userId);
     }
 
     @DeleteMapping("/{id}")
     public Result<?> delete(@PathVariable("id") Long id) {
         Long userId = SecurityUtils.getCurrentUserId();
+        log.info("用户 {} 请求删除文件, documentId={}", userId, id);
         return documentService.deleteDocument(id, userId);
     }
 }

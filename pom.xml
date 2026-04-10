@@ -122,11 +122,31 @@
 			<version>0.35.0</version>
 		</dependency>
 
+		<dependency>
+			<groupId>com.alibaba</groupId>
+			<artifactId>dashscope-sdk-java</artifactId>
+			<version>2.16.4</version>
+		</dependency>
+
 		<!-- MinIO -->
 		<dependency>
 			<groupId>io.minio</groupId>
 			<artifactId>minio</artifactId>
 			<version>8.5.9</version>
+		</dependency>
+
+		<!-- LangChain4j Chroma -->
+		<dependency>
+			<groupId>dev.langchain4j</groupId>
+			<artifactId>langchain4j-chroma</artifactId>
+			<version>0.35.0</version>
+		</dependency>
+
+		<!-- LangChain4j Apache Tika Parser -->
+		<dependency>
+			<groupId>dev.langchain4j</groupId>
+			<artifactId>langchain4j-document-parser-apache-tika</artifactId>
+			<version>0.35.0</version>
 		</dependency>
 	</dependencies>
 

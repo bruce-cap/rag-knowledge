@@ -10,8 +10,11 @@ spring:
 
   servlet:
     multipart:
-      max-file-size: 10MB
-      max-request-size: 10MB
+      max-file-size: 50MB
+      max-request-size: 50MB
+
+chroma:
+  url: http://localhost:8000
 
 
 
@@ -37,10 +40,17 @@ langchain4j:
 #      model-name: deepseek-r1:1.5b
       model-name: qwen2.5:1.5b
       temperature: 0.7
+  dashscope:
+    embedding-model:
+      api-key: ${DASHSCOPE_API_KEY:sk-b2b8cafb6e6b45e3a221c4e721dce7ad}
+      model-name: text-embedding-v4
+      batch-size: 10
 
 logging:
   level:
+    com.example.ragbackend: INFO
     com.example.ragbackend.mapper: WARN
+    com.example.ragbackend.service.impl.DocumentProcessingServiceImpl: DEBUG
 
 minio:
   endpoint: http://localhost:9000
