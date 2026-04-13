@@ -21,6 +21,10 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.memory.ChatMemory;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
+import dev.langchain4j.memory.chat.TokenWindowChatMemory;
+import dev.langchain4j.model.openai.OpenAiTokenizer;
+import static dev.langchain4j.model.openai.OpenAiChatModelName.GPT_3_5_TURBO;
+import org.springframework.beans.factory.annotation.Value;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -42,7 +46,14 @@ public class ChatController {
     @Autowired
     private ChatMessageMapper messageMapper;
 
+    @Value("${rag.memory.max-tokens:2000}")
+    private Integer maxTokens;
 
+    @Value("${rag.memory.keep-min-messages:2}")
+    private Integer keepMinMessages;
+
+	//添加弃用注解
+	@Deprecated
     @PostMapping("/send")
     public Result<String> sendMessage(@RequestBody ChatRequestDTO dto) {
         log.info("用户请求会话: {}, 内容: {}", dto.getSessionId(), dto.getMessage());
@@ -153,26 +164,56 @@ public class ChatController {
     }
 
     /**
-     * 手动加载历史记录并灌入 ChatMemory
+     * 智能加载历史记录并灌入 TokenWindowChatMemory
+     * 逻辑：计重制 (Token) 代替计件制，并支持强制保底条数
      */
     private ChatMemory prepareMemory(Long sessionId) {
-        ChatMemory memory = MessageWindowChatMemory.withMaxMessages(10);
+        // 1. 初始化 Token 驱动的内存容器
+        ChatMemory memory = TokenWindowChatMemory.builder()
+                .maxTokens(maxTokens, new OpenAiTokenizer(GPT_3_5_TURBO))
+                .build();
         
+        // 2. 扩大历史提取范围（提取最近 30 条，交给 TokenMemory 进行智能裁剪）
         List<ChatMessageEntity> dbMessages = messageMapper.selectList(
                 new LambdaQueryWrapper<ChatMessageEntity>()
                         .eq(ChatMessageEntity::getSessionId, sessionId)
-                        .orderByAsc(ChatMessageEntity::getCreateTime)
+                        .orderByDesc(ChatMessageEntity::getCreateTime)
+                        .last("LIMIT 30")
         );
 
-        if (dbMessages != null) {
-            for (ChatMessageEntity dbMsg : dbMessages) {
-                if ("user".equalsIgnoreCase(dbMsg.getRole())) {
-                    memory.add(new UserMessage(dbMsg.getContent()));
-                } else if ("assistant".equalsIgnoreCase(dbMsg.getRole())) {
-                    memory.add(new AiMessage(dbMsg.getContent()));
+        if (dbMessages == null || dbMessages.isEmpty()) {
+            return memory;
+        }
+
+        // 3. 将消息反放（因为是 DESC 取出的，需反转回 ASC 顺序喂给录音机）
+        Collections.reverse(dbMessages);
+        
+        // 4. 重放历史
+        for (ChatMessageEntity dbMsg : dbMessages) {
+            if ("user".equalsIgnoreCase(dbMsg.getRole())) {
+                memory.add(new UserMessage(dbMsg.getContent()));
+            } else if ("assistant".equalsIgnoreCase(dbMsg.getRole())) {
+                memory.add(new AiMessage(dbMsg.getContent()));
+            }
+        }
+
+        // 5. 【保底机制】：如果 Token 限制太严导致条目过少，强制补回最后几条
+        // 实际上 2000 Token 几乎不会发生这种情况，此处作为防御性逻辑
+        List<ChatMessage> currentMessages = memory.messages();
+        if (currentMessages.size() < keepMinMessages && dbMessages.size() >= keepMinMessages) {
+            log.warn("检查到 Token 裁剪过于激进，正在执行保底策略. sessionId={}", sessionId);
+            // 重新创建一个足够大的临时 Container 来容纳保底条目
+            memory = MessageWindowChatMemory.withMaxMessages(keepMinMessages);
+            for (int i = dbMessages.size() - keepMinMessages; i < dbMessages.size(); i++) {
+                ChatMessageEntity m = dbMessages.get(i);
+                if ("user".equalsIgnoreCase(m.getRole())) {
+                    memory.add(new UserMessage(m.getContent()));
+                } else {
+                    memory.add(new AiMessage(m.getContent()));
                 }
             }
         }
+        
         return memory;
     }
 
