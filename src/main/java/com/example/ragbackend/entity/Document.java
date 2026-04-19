@@ -39,6 +39,4 @@ public class Document {
     private LocalDateTime deleteTime;
 
     private String errorMessage;
-
-    private Boolean isPublic;
 }

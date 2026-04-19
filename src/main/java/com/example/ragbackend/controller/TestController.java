@@ -7,11 +7,12 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+// 测试用api
 @RestController
-@RequestMapping("/api")
+@RequestMapping("/api/test")
 public class TestController {
 
-    @GetMapping("/test")
+    @GetMapping("/test1")
     public String test() {
         return "✅ Spring Boot backend is running!";
     }

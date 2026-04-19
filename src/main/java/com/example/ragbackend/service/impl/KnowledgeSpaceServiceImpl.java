@@ -2,6 +2,7 @@ package com.example.ragbackend.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.example.ragbackend.constant.SystemSpaceConstants;
 import com.example.ragbackend.entity.Document;
 import com.example.ragbackend.entity.Folder;
 import com.example.ragbackend.entity.KnowledgeSpace;
@@ -58,6 +59,9 @@ public class KnowledgeSpaceServiceImpl extends ServiceImpl<KnowledgeSpaceMapper,
 
         KnowledgeSpace space = new KnowledgeSpace();
         space.setName(dto.getName().trim());
+        space.setCode(null);
+        space.setType(SystemSpaceConstants.BUSINESS_SPACE_TYPE);
+        space.setIsSystem(false);
         space.setDescription(dto.getDescription());
         space.setStatus(1);
         space.setCreateBy(userId);
@@ -97,6 +101,10 @@ public class KnowledgeSpaceServiceImpl extends ServiceImpl<KnowledgeSpaceMapper,
 
     @Override
     public void deleteSpace(Long spaceId, Long userId, boolean isAdmin) {
+        KnowledgeSpace space = getRequiredSpace(spaceId);
+        if (Boolean.TRUE.equals(space.getIsSystem())) {
+            throw new BusinessException(400, "System knowledge spaces cannot be deleted");
+        }
         ensureSpaceManagePermission(spaceId, userId, isAdmin);
 
         long folderCount = folderMapper.selectCount(new LambdaQueryWrapper<Folder>()
@@ -149,12 +157,16 @@ public class KnowledgeSpaceServiceImpl extends ServiceImpl<KnowledgeSpaceMapper,
 
     @Override
     public void removeMember(Long spaceId, Long memberUserId, Long operatorId, boolean isAdmin) {
+        KnowledgeSpace space = getRequiredSpace(spaceId);
         ensureSpaceManagePermission(spaceId, operatorId, isAdmin);
         if (memberUserId == null) {
             throw new BusinessException(400, "User ID cannot be null");
         }
         if (memberUserId.equals(operatorId) && !isAdmin) {
             throw new BusinessException(400, "Space admin cannot remove themselves directly");
+        }
+        if (Boolean.TRUE.equals(space.getIsSystem())) {
+            throw new BusinessException(400, "Members cannot be removed from system knowledge spaces");
         }
 
         int deleted = spaceMemberMapper.delete(new LambdaQueryWrapper<SpaceMember>()

@@ -37,7 +37,7 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
 
     @Override
     @Async("documentProcessingExecutor")
-    public void processDocumentAsync(Long documentId, Boolean isPublic) {
+    public void processDocumentAsync(Long documentId) {
         Document document = documentMapper.selectById(documentId);
         if (document == null) {
             log.warn("Document record not found, skip processing, documentId={}", documentId);
@@ -66,10 +66,7 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
                 segments.forEach(segment -> {
                     segment.metadata().add("document_id", String.valueOf(documentId));
                     segment.metadata().add("user_id", String.valueOf(document.getUserId()));
-                    segment.metadata().add("is_public", String.valueOf(isPublic != null && isPublic));
-                    if (document.getSpaceId() != null) {
-                        segment.metadata().add("space_id", String.valueOf(document.getSpaceId()));
-                    }
+                    segment.metadata().add("space_id", String.valueOf(document.getSpaceId()));
                     if (document.getFolderId() != null) {
                         segment.metadata().add("folder_id", String.valueOf(document.getFolderId()));
                     }

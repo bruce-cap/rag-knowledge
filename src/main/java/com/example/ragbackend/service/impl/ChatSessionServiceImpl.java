@@ -1,4 +1,4 @@
-package com.example.ragbackend.service.impl;
+﻿package com.example.ragbackend.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -22,7 +22,7 @@ public class ChatSessionServiceImpl extends ServiceImpl<ChatSessionMapper, ChatS
     public Long createSession(Long userId) {
         ChatSessionEntity session = new ChatSessionEntity();
         session.setUserId(userId);
-        session.setTitle("新的对话");
+        session.setTitle("新的会话");
         this.save(session);
 //        ChatMessageEntity init = new ChatMessageEntity();
 //        init.setSessionId(session.getId());
@@ -47,3 +47,4 @@ public class ChatSessionServiceImpl extends ServiceImpl<ChatSessionMapper, ChatS
                 .eq(ChatSessionEntity::getUserId, userId));
     }
 }
+

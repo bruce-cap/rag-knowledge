@@ -19,20 +19,20 @@ public class ChatSessionController {
     private ChatSessionService sessionService;
 
     @PostMapping("/create")
-    public Result<Long> createSession() {
+    public Result<Long> createChatSession() {
         Long userId = SecurityUtils.getCurrentUserId();
         log.info("用户 {} 发起创建会话请求", userId);
         return Result.success(sessionService.createSession(userId));
     }
 
     @GetMapping("/list")
-    public Result<List<ChatSessionEntity>> list() {
+    public Result<List<ChatSessionEntity>> listChatSession() {
         Long userId = SecurityUtils.getCurrentUserId();
         return Result.success(sessionService.getUserSessions(userId));
     }
 
     @DeleteMapping("/delete/{id}")
-    public Result<?> delete(@PathVariable Long id) {
+    public Result<?> deleteChatSession(@PathVariable Long id) {
         Long userId = SecurityUtils.getCurrentUserId();
         // 这里的 Service 实现需要确保删除的是该用户自己的会话
         boolean success = sessionService.deleteSession(id, userId);

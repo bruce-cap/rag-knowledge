@@ -4,6 +4,7 @@ import com.example.ragbackend.common.Result;
 import com.example.ragbackend.model.dto.SearchRequestDTO;
 import com.example.ragbackend.service.DashScopeEmbeddingService;
 import com.example.ragbackend.service.DocumentService;
+import com.example.ragbackend.service.SpaceAccessService;
 import com.example.ragbackend.utils.SecurityUtils;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
@@ -21,8 +22,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import static dev.langchain4j.store.embedding.filter.MetadataFilterBuilder.metadataKey;
-
 @RestController
 @RequestMapping("/api/document")
 @CrossOrigin
@@ -38,22 +37,26 @@ public class DocumentController {
     @Autowired
     private DashScopeEmbeddingService dashScopeEmbeddingService;
 
+    @Autowired
+    private SpaceAccessService spaceAccessService;
+
     @PostMapping("/search")
     public Result<?> searchDocument(@RequestBody SearchRequestDTO request) {
         Long userId = SecurityUtils.getCurrentUserId();
-        log.info("User {} requests vector search, query={}", userId, request.getQuery());
+        boolean isAdmin = SecurityUtils.isAdmin();
+        log.info("User {} requests vector search, query={}, spaceId={}, folderId={}",
+                userId, request.getQuery(), request.getSpaceId(), request.getFolderId());
 
         if (request.getQuery() == null || request.getQuery().trim().isEmpty()) {
             return Result.error("Search query cannot be empty");
         }
 
-        Embedding queryEmbedding = dashScopeEmbeddingService.embedSegments(List.of(TextSegment.from(request.getQuery()))).get(0);
-
-        Filter filter = null;
-        if (!SecurityUtils.isAdmin()) {
-            filter = metadataKey("user_id").isEqualTo(String.valueOf(userId))
-                    .or(metadataKey("is_public").isEqualTo("true"));
+        if (!isAdmin && request.getSpaceId() != null && !spaceAccessService.canAccessSpace(userId, request.getSpaceId())) {
+            return Result.error(403, "You do not have permission to search this space");
         }
+
+        Embedding queryEmbedding = dashScopeEmbeddingService.embedSegments(List.of(TextSegment.from(request.getQuery()))).get(0);
+        Filter filter = spaceAccessService.buildSearchFilter(userId, isAdmin, request.getSpaceId(), request.getFolderId());
 
         EmbeddingSearchRequest searchRequest = EmbeddingSearchRequest.builder()
                 .queryEmbedding(queryEmbedding)
@@ -79,24 +82,23 @@ public class DocumentController {
 
     @PostMapping("/upload")
     public Result<?> uploadDocument(@RequestParam("file") MultipartFile file,
-                            @RequestParam(value = "isPublic", defaultValue = "false") Boolean isPublic,
-                            @RequestParam(value = "spaceId", required = false) Long spaceId,
-                            @RequestParam(value = "folderId", required = false) Long folderId) {
+                                    @RequestParam("spaceId") Long spaceId,
+                                    @RequestParam(value = "folderId", required = false) Long folderId) {
         Long userId = SecurityUtils.getCurrentUserId();
-        log.info("User {} uploads document {}, isPublic={}, spaceId={}, folderId={}",
-                userId, file.getOriginalFilename(), isPublic, spaceId, folderId);
-        return documentService.uploadDocument(file, userId, isPublic, spaceId, folderId);
+        log.info("User {} uploads document {}, spaceId={}, folderId={}",
+                userId, file.getOriginalFilename(), spaceId, folderId);
+        return documentService.uploadDocument(file, userId, spaceId, folderId);
     }
 
     @GetMapping("/list")
     public Result<?> listDocument(@RequestParam(value = "spaceId", required = false) Long spaceId,
-                          @RequestParam(value = "folderId", required = false) Long folderId) {
+                                  @RequestParam(value = "folderId", required = false) Long folderId) {
         Long userId = SecurityUtils.getCurrentUserId();
         log.info("User {} queries documents, spaceId={}, folderId={}", userId, spaceId, folderId);
         return documentService.listDocuments(userId, spaceId, folderId);
     }
 
-    @DeleteMapping("/{id}")
+    @DeleteMapping("/delete/{id}")
     public Result<?> deleteDocument(@PathVariable("id") Long id) {
         Long userId = SecurityUtils.getCurrentUserId();
         log.info("User {} requests deleting document {}", userId, id);

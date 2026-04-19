@@ -12,6 +12,7 @@ import com.example.ragbackend.mapper.FolderMapper;
 import com.example.ragbackend.mapper.SpaceMemberMapper;
 import com.example.ragbackend.service.DocumentProcessingService;
 import com.example.ragbackend.service.DocumentService;
+import com.example.ragbackend.service.SpaceAccessService;
 import com.example.ragbackend.utils.SecurityUtils;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.store.embedding.EmbeddingStore;
@@ -52,12 +53,15 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
     @Autowired
     private FolderMapper folderMapper;
 
+    @Autowired
+    private SpaceAccessService spaceAccessService;
+
     @Value("${minio.bucketName}")
     private String bucketName;
 
     @Override
     @Transactional
-    public Result<?> uploadDocument(MultipartFile file, Long userId, Boolean isPublic, Long spaceId, Long folderId) {
+    public Result<?> uploadDocument(MultipartFile file, Long userId, Long spaceId, Long folderId) {
         try {
             validateDocumentOwnershipPlacement(userId, spaceId, folderId);
 
@@ -89,7 +93,6 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
             document.setIsDeleted(false);
             document.setDeleteTime(null);
             document.setErrorMessage(null);
-            document.setIsPublic(isPublic != null && isPublic);
             document.setCreateTime(LocalDateTime.now());
             document.setUpdateTime(LocalDateTime.now());
             this.save(document);
@@ -98,11 +101,11 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
                 TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                     @Override
                     public void afterCommit() {
-                        documentProcessingService.processDocumentAsync(document.getId(), document.getIsPublic());
+                        documentProcessingService.processDocumentAsync(document.getId());
                     }
                 });
             } else {
-                documentProcessingService.processDocumentAsync(document.getId(), document.getIsPublic());
+                documentProcessingService.processDocumentAsync(document.getId());
             }
 
             return Result.success(document);
@@ -131,10 +134,19 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
             return Result.success(this.list(queryWrapper));
         }
 
-        queryWrapper.and(wrapper -> wrapper.eq(Document::getUserId, userId).or().eq(Document::getIsPublic, true));
+        List<Long> accessibleSpaceIds = spaceAccessService.getAccessibleSpaceIds(userId);
+        if (spaceId != null && !spaceAccessService.canAccessSpace(userId, spaceId)) {
+            return Result.error(403, "You do not have permission to view this space");
+        }
+
         if (spaceId != null) {
             queryWrapper.eq(Document::getSpaceId, spaceId);
+        } else if (accessibleSpaceIds.isEmpty()) {
+            return Result.success(List.of());
+        } else {
+            queryWrapper.in(Document::getSpaceId, accessibleSpaceIds);
         }
+
         if (folderId != null) {
             queryWrapper.eq(Document::getFolderId, folderId);
         }
@@ -175,11 +187,11 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
     }
 
     private void validateDocumentOwnershipPlacement(Long userId, Long spaceId, Long folderId) {
-        if (folderId != null && spaceId == null) {
-            throw new BusinessException(400, "spaceId is required when folderId is provided");
+        if (spaceId == null) {
+            throw new BusinessException(400, "spaceId is required");
         }
 
-        if (spaceId != null && !SecurityUtils.isAdmin()) {
+        if (!SecurityUtils.isAdmin()) {
             SpaceMember membership = spaceMemberMapper.selectOne(new LambdaQueryWrapper<SpaceMember>()
                     .eq(SpaceMember::getSpaceId, spaceId)
                     .eq(SpaceMember::getUserId, userId));

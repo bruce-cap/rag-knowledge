@@ -30,13 +30,13 @@ public class FolderController {
         return Result.success(folderService.createFolder(userId, SecurityUtils.isAdmin(), dto));
     }
 
-    @PutMapping("/{id}")
+    @PutMapping("/update/{id}")
     public Result<Folder> updateFolder(@PathVariable Long id, @RequestBody FolderUpdateDTO dto) {
         Long userId = SecurityUtils.getCurrentUserId();
         return Result.success(folderService.updateFolder(id, userId, SecurityUtils.isAdmin(), dto));
     }
 
-    @DeleteMapping("/{id}")
+    @DeleteMapping("/delete/{id}")
     public Result<String> deleteFolder(@PathVariable Long id) {
         Long userId = SecurityUtils.getCurrentUserId();
         folderService.deleteFolder(id, userId, SecurityUtils.isAdmin());

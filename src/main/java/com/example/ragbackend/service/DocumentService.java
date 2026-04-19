@@ -7,7 +7,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 public interface DocumentService extends IService<Document> {
 
-    Result<?> uploadDocument(MultipartFile file, Long userId, Boolean isPublic, Long spaceId, Long folderId);
+    Result<?> uploadDocument(MultipartFile file, Long userId, Long spaceId, Long folderId);
 
     Result<?> listDocuments(Long userId, Long spaceId, Long folderId);
 

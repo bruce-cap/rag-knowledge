@@ -38,7 +38,7 @@ public class KnowledgeSpaceController {
         return Result.success(knowledgeSpaceService.updateSpace(id, userId, SecurityUtils.isAdmin(), dto));
     }
 
-    @DeleteMapping("/{id}")
+    @DeleteMapping("/delete/{id}")
     public Result<String> deleteSpace(@PathVariable Long id) {
         Long userId = SecurityUtils.getCurrentUserId();
         knowledgeSpaceService.deleteSpace(id, userId, SecurityUtils.isAdmin());

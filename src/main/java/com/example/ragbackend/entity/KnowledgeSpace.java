@@ -16,6 +16,12 @@ public class KnowledgeSpace {
 
     private String name;
 
+    private String code;
+
+    private String type;
+
+    private Boolean isSystem;
+
     private String description;
 
     private Integer status;

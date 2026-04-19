@@ -23,6 +23,8 @@ public class MessageController {
         return Result.success(chatMessageService.listSessionMessages(sessionId, userId));
     }
 
+    //弃用
+    @Deprecated
     @DeleteMapping("/delete/{id}")
     public Result<String> deleteMessage(@PathVariable("id") Long id) {
         Long userId = SecurityUtils.getCurrentUserId();
