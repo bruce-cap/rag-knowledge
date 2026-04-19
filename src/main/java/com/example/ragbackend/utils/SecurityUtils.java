@@ -7,16 +7,21 @@ public class SecurityUtils {
     public static Long getCurrentUserId() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication != null && authentication.getCredentials() instanceof Long) {
-            // 我们在 Filter 里把 userId 存到了 Credentials 位置
             return (Long) authentication.getCredentials();
         }
-        throw new RuntimeException("当前上下文未找到用户信息");
+        throw new RuntimeException("Current user information was not found in security context");
+    }
+
+    public static boolean isSuperAdmin() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null) {
+            return false;
+        }
+        return authentication.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_SUPER_ADMIN") || a.getAuthority().equals("ROLE_ADMIN"));
     }
 
     public static boolean isAdmin() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null) return false;
-        return authentication.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+        return isSuperAdmin();
     }
 }

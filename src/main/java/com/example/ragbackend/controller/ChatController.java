@@ -1,4 +1,4 @@
-﻿package com.example.ragbackend.controller;
+package com.example.ragbackend.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.ragbackend.common.Result;
@@ -107,7 +107,9 @@ public class ChatController {
         }
         ensureSessionOwnership(dto.getSessionId());
 
+        //保存用户消息
         saveUserMessage(dto.getSessionId(), dto.getMessage());
+        //更新会话
         touchSession(dto.getSessionId());
 
         SseEmitter emitter = new SseEmitter(3600000L);
@@ -162,6 +164,13 @@ public class ChatController {
         return emitter;
     }
 
+
+    /**
+     * 创建会话内存
+     * 上下文管理
+     * @param sessionId
+     * @return
+     */
     private ChatMemory prepareMemory(Long sessionId) {
         ChatMemory memory = TokenWindowChatMemory.builder()
                 .maxTokens(maxTokens, new OpenAiTokenizer(GPT_3_5_TURBO))
@@ -222,6 +231,10 @@ public class ChatController {
         messageMapper.insert(entity);
     }
 
+    /**
+     * 更新会话
+     * @param sessionId
+     */
     private void touchSession(Long sessionId) {
         ChatSessionEntity session = sessionMapper.selectById(sessionId);
         if (session != null) {

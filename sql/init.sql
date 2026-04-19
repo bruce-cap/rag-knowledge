@@ -166,6 +166,8 @@ CREATE TABLE `space_member` (
 -- Table structure for table `sys_user`
 --
 
+
+
 DROP TABLE IF EXISTS `sys_user`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -180,6 +182,34 @@ CREATE TABLE `sys_user` (
   UNIQUE KEY `username` (`username`)
 ) ENGINE=InnoDB AUTO_INCREMENT=9 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `space_join_request`
+--
+
+DROP TABLE IF EXISTS `space_join_request`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `space_join_request` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `space_id` bigint NOT NULL,
+  `user_id` bigint NOT NULL,
+  `status` varchar(20) NOT NULL DEFAULT 'PENDING',
+  `apply_reason` varchar(500) DEFAULT NULL,
+  `review_reason` varchar(500) DEFAULT NULL,
+  `review_by` bigint DEFAULT NULL,
+  `review_time` datetime DEFAULT NULL,
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_space_join_request_space_id` (`space_id`),
+  KEY `idx_space_join_request_user_id` (`user_id`),
+  KEY `idx_space_join_request_status` (`status`),
+  CONSTRAINT `fk_space_join_request_space` FOREIGN KEY (`space_id`) REFERENCES `knowledge_space` (`id`),
+  CONSTRAINT `fk_space_join_request_user` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`),
+  CONSTRAINT `fk_space_join_request_review_user` FOREIGN KEY (`review_by`) REFERENCES `sys_user` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
@@ -191,4 +221,6 @@ CREATE TABLE `sys_user` (
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
 -- Dump completed on 2026-04-19 22:58:31
+
+
 

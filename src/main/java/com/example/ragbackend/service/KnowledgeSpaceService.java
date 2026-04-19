@@ -13,15 +13,19 @@ public interface KnowledgeSpaceService extends IService<KnowledgeSpace> {
 
     List<KnowledgeSpace> listAccessibleSpaces(Long userId, boolean isAdmin);
 
-    KnowledgeSpace createSpace(Long userId, KnowledgeSpaceCreateDTO dto);
+    List<KnowledgeSpace> listAllSpaces(Long userId, boolean isSuperAdmin);
 
-    KnowledgeSpace updateSpace(Long spaceId, Long userId, boolean isAdmin, KnowledgeSpaceUpdateDTO dto);
+    KnowledgeSpace createSpace(Long userId, boolean isSuperAdmin, KnowledgeSpaceCreateDTO dto);
 
-    void deleteSpace(Long spaceId, Long userId, boolean isAdmin);
+    KnowledgeSpace updateSpace(Long spaceId, Long userId, boolean isSuperAdmin, KnowledgeSpaceUpdateDTO dto);
 
-    List<SpaceMember> listMembers(Long spaceId, Long userId, boolean isAdmin);
+    void deleteSpace(Long spaceId, Long userId, boolean isSuperAdmin);
 
-    SpaceMember addMember(Long spaceId, Long operatorId, boolean isAdmin, SpaceMemberAddDTO dto);
+    List<SpaceMember> listMembers(Long spaceId, Long userId, boolean isSuperAdmin);
 
-    void removeMember(Long spaceId, Long memberUserId, Long operatorId, boolean isAdmin);
+    SpaceMember addMember(Long spaceId, Long operatorId, boolean isSuperAdmin, SpaceMemberAddDTO dto);
+
+    void removeMember(Long spaceId, Long memberUserId, Long operatorId, boolean isSuperAdmin);
+
+    SpaceMember updateMemberRole(Long spaceId, Long memberUserId, Long operatorId, boolean isSuperAdmin, String role);
 }
