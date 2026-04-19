@@ -1,44 +1,34 @@
 package com.example.ragbackend.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Data
-@TableName("document")
-public class Document {
+@TableName("folder")
+public class Folder {
 
     @TableId(type = IdType.AUTO)
     private Long id;
 
     private Long spaceId;
 
-    private Long folderId;
+    private Long parentId;
 
-    private Long userId;
+    private String name;
 
-    private String fileName;
-
-    private String minioPath;
-
-    private Long fileSize;
-
-    private String fileType;
-
-    private Integer status;
+    private Long createBy;
 
     private LocalDateTime createTime;
 
     private LocalDateTime updateTime;
 
-    private Boolean isDeleted;
-
-    private LocalDateTime deleteTime;
-
-    private String errorMessage;
-
-    private Boolean isPublic;
+    @TableField(exist = false)
+    private List<Folder> children = new ArrayList<>();
 }

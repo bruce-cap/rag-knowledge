@@ -19,7 +19,7 @@ public class ChatSessionController {
     private ChatSessionService sessionService;
 
     @PostMapping("/create")
-    public Result<Long> create() {
+    public Result<Long> createSession() {
         Long userId = SecurityUtils.getCurrentUserId();
         log.info("用户 {} 发起创建会话请求", userId);
         return Result.success(sessionService.createSession(userId));
@@ -31,7 +31,7 @@ public class ChatSessionController {
         return Result.success(sessionService.getUserSessions(userId));
     }
 
-    @DeleteMapping("/{id}")
+    @DeleteMapping("/delete/{id}")
     public Result<?> delete(@PathVariable Long id) {
         Long userId = SecurityUtils.getCurrentUserId();
         // 这里的 Service 实现需要确保删除的是该用户自己的会话

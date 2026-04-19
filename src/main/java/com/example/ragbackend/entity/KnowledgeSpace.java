@@ -8,37 +8,21 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("document")
-public class Document {
+@TableName("knowledge_space")
+public class KnowledgeSpace {
 
     @TableId(type = IdType.AUTO)
     private Long id;
 
-    private Long spaceId;
+    private String name;
 
-    private Long folderId;
-
-    private Long userId;
-
-    private String fileName;
-
-    private String minioPath;
-
-    private Long fileSize;
-
-    private String fileType;
+    private String description;
 
     private Integer status;
+
+    private Long createBy;
 
     private LocalDateTime createTime;
 
     private LocalDateTime updateTime;
-
-    private Boolean isDeleted;
-
-    private LocalDateTime deleteTime;
-
-    private String errorMessage;
-
-    private Boolean isPublic;
 }

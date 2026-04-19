@@ -4,10 +4,17 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.example.ragbackend.common.Result;
 import com.example.ragbackend.entity.Document;
+import com.example.ragbackend.entity.Folder;
+import com.example.ragbackend.entity.SpaceMember;
+import com.example.ragbackend.exception.BusinessException;
 import com.example.ragbackend.mapper.DocumentMapper;
+import com.example.ragbackend.mapper.FolderMapper;
+import com.example.ragbackend.mapper.SpaceMemberMapper;
 import com.example.ragbackend.service.DocumentProcessingService;
 import com.example.ragbackend.service.DocumentService;
 import com.example.ragbackend.utils.SecurityUtils;
+import dev.langchain4j.data.segment.TextSegment;
+import dev.langchain4j.store.embedding.EmbeddingStore;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
@@ -19,13 +26,12 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
-import dev.langchain4j.data.segment.TextSegment;
-import dev.langchain4j.store.embedding.EmbeddingStore;
-import static dev.langchain4j.store.embedding.filter.MetadataFilterBuilder.metadataKey;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+
+import static dev.langchain4j.store.embedding.filter.MetadataFilterBuilder.metadataKey;
 
 @Slf4j
 @Service
@@ -40,25 +46,28 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
     @Autowired
     private EmbeddingStore<TextSegment> embeddingStore;
 
+    @Autowired
+    private SpaceMemberMapper spaceMemberMapper;
+
+    @Autowired
+    private FolderMapper folderMapper;
+
     @Value("${minio.bucketName}")
     private String bucketName;
 
     @Override
     @Transactional
-    public Result<?> uploadDocument(MultipartFile file, Long userId, Boolean isPublic) {
-        log.info("开始处理文件上传, fileName={}, userId={}, isPublic={}", file.getOriginalFilename(), userId, isPublic);
+    public Result<?> uploadDocument(MultipartFile file, Long userId, Boolean isPublic, Long spaceId, Long folderId) {
         try {
+            validateDocumentOwnershipPlacement(userId, spaceId, folderId);
+
             String originalFilename = file.getOriginalFilename();
             String extension = "";
             if (originalFilename != null && originalFilename.contains(".")) {
                 extension = originalFilename.substring(originalFilename.lastIndexOf("."));
             }
-            log.info("文件上传开始, userId={}, fileName={}, size={}, extension={}",
-                    userId, originalFilename, file.getSize(), extension);
 
             String minioPath = "documents/" + userId + "/" + UUID.randomUUID() + extension;
-            log.info("上传文件至 MinIO, userId={}, minioPath={}", userId, minioPath);
-
             minioClient.putObject(
                     PutObjectArgs.builder()
                             .bucket(bucketName)
@@ -67,73 +76,83 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
                             .contentType(file.getContentType())
                             .build()
             );
-            log.info("MinIO 上传完成, userId={}, minioPath={}", userId, minioPath);
 
             Document document = new Document();
+            document.setSpaceId(spaceId);
+            document.setFolderId(folderId);
             document.setUserId(userId);
-            document.setFileName(file.getOriginalFilename());
+            document.setFileName(originalFilename);
             document.setMinioPath(minioPath);
             document.setFileSize(file.getSize());
+            document.setFileType(resolveFileType(originalFilename));
             document.setStatus(0);
+            document.setIsDeleted(false);
+            document.setDeleteTime(null);
+            document.setErrorMessage(null);
             document.setIsPublic(isPublic != null && isPublic);
             document.setCreateTime(LocalDateTime.now());
             document.setUpdateTime(LocalDateTime.now());
             this.save(document);
-            log.info("Document 记录已保存, documentId={}, userId={}, status=0(待处理)", document.getId(), userId);
 
-            // 3. 异步触发后端文档解析与处理
-            // 关键修复：确保在事务提交之后再触发异步任务，防止异步线程查不到尚未提交的数据库记录
             if (TransactionSynchronizationManager.isActualTransactionActive()) {
                 TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                     @Override
                     public void afterCommit() {
                         documentProcessingService.processDocumentAsync(document.getId(), document.getIsPublic());
-                        log.info("事务已提交，异步处理任务已触发, documentId={}", document.getId());
                     }
                 });
             } else {
-                // 如果没有事务环境，则直接触发
                 documentProcessingService.processDocumentAsync(document.getId(), document.getIsPublic());
             }
 
             return Result.success(document);
-        } catch (Exception e) {
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (Exception ex) {
             log.error("Document upload failed, userId={}, fileName={}, error={}",
-                    userId, file.getOriginalFilename(), e.getMessage(), e);
-            return Result.error("上传失败: " + e.getMessage());
+                    userId, file.getOriginalFilename(), ex.getMessage(), ex);
+            return Result.error("Upload failed: " + ex.getMessage());
         }
     }
 
     @Override
-    public Result<?> listDocuments(Long userId) {
-        List<Document> documents;
+    public Result<?> listDocuments(Long userId, Long spaceId, Long folderId) {
+        LambdaQueryWrapper<Document> queryWrapper = new LambdaQueryWrapper<Document>()
+                .eq(Document::getIsDeleted, false)
+                .orderByDesc(Document::getCreateTime);
+
         if (SecurityUtils.isAdmin()) {
-            log.info("管理员 {} 正在查询全量文档列表", userId);
-            documents = this.list();
-        } else {
-            log.info("用户 {} 正在查询可见文档列表", userId);
-            documents = this.list(new LambdaQueryWrapper<Document>()
-                    .eq(Document::getUserId, userId)
-                    .or().eq(Document::getIsPublic, true)
-                    .orderByDesc(Document::getCreateTime));
+            if (spaceId != null) {
+                queryWrapper.eq(Document::getSpaceId, spaceId);
+            }
+            if (folderId != null) {
+                queryWrapper.eq(Document::getFolderId, folderId);
+            }
+            return Result.success(this.list(queryWrapper));
         }
-        return Result.success(documents);
+
+        queryWrapper.and(wrapper -> wrapper.eq(Document::getUserId, userId).or().eq(Document::getIsPublic, true));
+        if (spaceId != null) {
+            queryWrapper.eq(Document::getSpaceId, spaceId);
+        }
+        if (folderId != null) {
+            queryWrapper.eq(Document::getFolderId, folderId);
+        }
+
+        return Result.success(this.list(queryWrapper));
     }
 
     @Override
     @Transactional
     public Result<?> deleteDocument(Long id, Long userId) {
         Document document = this.getById(id);
-        if (document == null) {
-            log.warn("删除文件失败, documentId={}, userId={}, 记录不存在", id, userId);
-            return Result.error("文件记录不存在");
+        if (document == null || Boolean.TRUE.equals(document.getIsDeleted())) {
+            return Result.error("Document record does not exist");
         }
         if (!document.getUserId().equals(userId) && !SecurityUtils.isAdmin()) {
-            log.warn("拒绝未经授权的删除请求, userId={}, documentId={}", userId, id);
-            return Result.error("您没有权限删除此文件");
+            return Result.error("You do not have permission to delete this document");
         }
 
-        log.info("开始删除文件, documentId={}, userId={}, minioPath={}", id, userId, document.getMinioPath());
         try {
             minioClient.removeObject(
                     RemoveObjectArgs.builder()
@@ -141,24 +160,49 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
                             .object(document.getMinioPath())
                             .build()
             );
-            log.info("MinIO 文件删除完成, documentId={}", id);
-        } catch (Exception e) {
-            log.error("MinIO 文件删除失败, documentId={}, path={}, error={}",
-                    id, document.getMinioPath(), e.getMessage(), e);
+        } catch (Exception ex) {
+            log.error("Failed to delete MinIO object, documentId={}, error={}", id, ex.getMessage(), ex);
         }
 
-        // 3. 从 Chroma 向量库同步删除相关片段
         try {
-            log.info("开始从 Chroma 删除向量片段, documentId={}", id);
             embeddingStore.removeAll(metadataKey("document_id").isEqualTo(String.valueOf(id)));
-            log.info("Chroma 向量片段删除完成, documentId={}", id);
-        } catch (Exception e) {
-            log.error("Chroma 向量片段删除失败, documentId={}, error={}", id, e.getMessage(), e);
-            // 向量库删除失败通常不应阻塞主流程，但需记录日志
+        } catch (Exception ex) {
+            log.error("Failed to delete document vectors, documentId={}, error={}", id, ex.getMessage(), ex);
         }
 
         this.removeById(id);
-        log.info("数据库记录删除完成, documentId={}", id);
-        return Result.success("删除成功");
+        return Result.success("Document deleted successfully");
+    }
+
+    private void validateDocumentOwnershipPlacement(Long userId, Long spaceId, Long folderId) {
+        if (folderId != null && spaceId == null) {
+            throw new BusinessException(400, "spaceId is required when folderId is provided");
+        }
+
+        if (spaceId != null && !SecurityUtils.isAdmin()) {
+            SpaceMember membership = spaceMemberMapper.selectOne(new LambdaQueryWrapper<SpaceMember>()
+                    .eq(SpaceMember::getSpaceId, spaceId)
+                    .eq(SpaceMember::getUserId, userId));
+            if (membership == null) {
+                throw new BusinessException(403, "You do not belong to the target knowledge space");
+            }
+        }
+
+        if (folderId != null) {
+            Folder folder = folderMapper.selectById(folderId);
+            if (folder == null) {
+                throw new BusinessException(404, "Folder not found");
+            }
+            if (!folder.getSpaceId().equals(spaceId)) {
+                throw new BusinessException(400, "Folder does not belong to the specified space");
+            }
+        }
+    }
+
+    private String resolveFileType(String originalFilename) {
+        if (originalFilename == null || !originalFilename.contains(".")) {
+            return "unknown";
+        }
+        return originalFilename.substring(originalFilename.lastIndexOf('.') + 1).toLowerCase();
     }
 }

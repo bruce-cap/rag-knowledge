@@ -3,9 +3,9 @@ spring:
     name: ragbackend
 
   datasource:
-    url: jdbc:mysql://localhost:3306/rag?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
-    username: root
-    password: 123456
+    url: ${DB_URL:jdbc:mysql://localhost:3306/rag?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:123456}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   servlet:
@@ -14,37 +14,24 @@ spring:
       max-request-size: 50MB
 
 chroma:
-  url: http://localhost:8000
+  url: ${CHROMA_URL:http://localhost:8000}
 
-
-
-# 这一行很重要，MyBatis-Plus 需要确认实体类的位置
 mybatis-plus:
   type-aliases-package: com.example.ragbackend.entity
   configuration:
     log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
-#mybatis-plus:
-#  type-aliases-package: com.example.ragbackend.entity
-#  configuration:
-#    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
-#mybatis-plus:
-#  configuration:
-#    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl # 开启控制台 SQL 日志，方便调试
-#    map-underscore-to-camel-case: true
-
 
 langchain4j:
   ollama:
     chat-model:
-      base-url: http://localhost:11434
-#      model-name: deepseek-r1:8b
-      model-name: qwen2.5:1.5b
-      temperature: 0.7
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      model-name: ${OLLAMA_MODEL_NAME:qwen2.5:1.5b}
+      temperature: ${OLLAMA_TEMPERATURE:0.7}
   dashscope:
     embedding-model:
       api-key: ${DASHSCOPE_API_KEY:sk-b2b8cafb6e6b45e3a221c4e721dce7ad}
-      model-name: text-embedding-v4
-      batch-size: 10
+      model-name: ${DASHSCOPE_MODEL_NAME:text-embedding-v4}
+      batch-size: ${DASHSCOPE_BATCH_SIZE:10}
 
 logging:
   level:
@@ -53,16 +40,15 @@ logging:
     com.example.ragbackend.service.impl.DocumentProcessingServiceImpl: DEBUG
 
 minio:
-  endpoint: http://localhost:9000
-  accessKey: minioadmin
-  secretKey: minioadmin
-  bucketName: rag
+  endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+  accessKey: ${MINIO_ACCESS_KEY:minioadmin}
+  secretKey: ${MINIO_SECRET_KEY:minioadmin}
+  bucketName: ${MINIO_BUCKET_NAME:rag}
 
-# RAG 模块核心参数配置
 rag:
   config:
-    min-score: 0.7    # 相似度阈值
-    max-results: 5    # 最大检索分块数
+    min-score: ${RAG_MIN_SCORE:0.7}
+    max-results: ${RAG_MAX_RESULTS:5}
   memory:
-    max-tokens: 2000  # 记忆的最大容量（比条数更科学）
-    keep-min-messages: 2 # 无论多挤，至少保留 2 条对话
+    max-tokens: ${RAG_MEMORY_MAX_TOKENS:2000}
+    keep-min-messages: ${RAG_MEMORY_KEEP_MIN_MESSAGES:2}
