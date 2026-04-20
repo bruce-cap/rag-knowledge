@@ -7,6 +7,7 @@ import com.example.ragbackend.model.dto.KnowledgeSpaceCreateDTO;
 import com.example.ragbackend.model.dto.KnowledgeSpaceUpdateDTO;
 import com.example.ragbackend.model.dto.SpaceMemberAddDTO;
 import com.example.ragbackend.model.dto.SpaceMemberRoleUpdateDTO;
+import com.example.ragbackend.model.vo.UserListItemVO;
 import com.example.ragbackend.service.KnowledgeSpaceService;
 import com.example.ragbackend.utils.SecurityUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -58,6 +59,12 @@ public class KnowledgeSpaceController {
     public Result<List<SpaceMember>> listMembers(@PathVariable Long id) {
         Long userId = SecurityUtils.getCurrentUserId();
         return Result.success(knowledgeSpaceService.listMembers(id, userId, SecurityUtils.isAdmin()));
+    }
+
+    @GetMapping("/{id}/invitableUsers")
+    public Result<List<UserListItemVO>> listInvitableUsers(@PathVariable Long id) {
+        Long userId = SecurityUtils.getCurrentUserId();
+        return Result.success(knowledgeSpaceService.listInvitableUsers(id, userId, SecurityUtils.isSuperAdmin()));
     }
 
     @PostMapping("/{id}/members")

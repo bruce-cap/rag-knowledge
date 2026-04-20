@@ -168,6 +168,7 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
         }
 
         document.setIsDeleted(true);
+        document.setFolderId(null);
         document.setDeleteTime(LocalDateTime.now());
         document.setUpdateTime(LocalDateTime.now());
         updateById(document);
@@ -217,6 +218,28 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
         return document;
     }
 
+    @Override
+    @Transactional
+    public void purgeDocumentsByFolderIds(List<Long> folderIds) {
+        if (folderIds == null || folderIds.isEmpty()) {
+            return;
+        }
+        List<Document> documents = list(new LambdaQueryWrapper<Document>()
+                .in(Document::getFolderId, folderIds));
+        purgeDocuments(documents);
+    }
+
+    @Override
+    @Transactional
+    public void purgeDocumentsBySpaceId(Long spaceId) {
+        if (spaceId == null) {
+            return;
+        }
+        List<Document> documents = list(new LambdaQueryWrapper<Document>()
+                .eq(Document::getSpaceId, spaceId));
+        purgeDocuments(documents);
+    }
+
     private void validateUploadPermission(Long userId, Long spaceId, Long folderId) {
         if (spaceId == null) {
             throw new BusinessException(400, "spaceId is required");
@@ -245,6 +268,35 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
         SpaceMember membership = spaceAccessService.getMembership(userId, document.getSpaceId());
         if (membership == null || !SpaceJoinRequestConstants.ADMIN_ROLE.equalsIgnoreCase(membership.getRole())) {
             throw new BusinessException(403, "You do not have permission to manage this document");
+        }
+    }
+
+    private void purgeDocuments(List<Document> documents) {
+        if (documents == null || documents.isEmpty()) {
+            return;
+        }
+        for (Document document : documents) {
+            cleanupExternalResources(document);
+            removeById(document.getId());
+        }
+    }
+
+    private void cleanupExternalResources(Document document) {
+        try {
+            minioClient.removeObject(RemoveObjectArgs.builder()
+                    .bucket(bucketName)
+                    .object(document.getMinioPath())
+                    .build());
+        } catch (Exception ex) {
+            log.warn("Failed to delete MinIO object during purge, documentId={}, error={}",
+                    document.getId(), ex.getMessage());
+        }
+
+        try {
+            embeddingStore.removeAll(metadataKey("document_id").isEqualTo(String.valueOf(document.getId())));
+        } catch (Exception ex) {
+            log.warn("Failed to delete vectors during purge, documentId={}, error={}",
+                    document.getId(), ex.getMessage());
         }
     }
 

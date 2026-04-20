@@ -7,10 +7,12 @@ import com.example.ragbackend.constant.SpaceRoleRequestConstants;
 import com.example.ragbackend.entity.KnowledgeSpace;
 import com.example.ragbackend.entity.SpaceMember;
 import com.example.ragbackend.entity.SpaceRoleRequest;
+import com.example.ragbackend.entity.User;
 import com.example.ragbackend.exception.BusinessException;
 import com.example.ragbackend.mapper.KnowledgeSpaceMapper;
 import com.example.ragbackend.mapper.SpaceMemberMapper;
 import com.example.ragbackend.mapper.SpaceRoleRequestMapper;
+import com.example.ragbackend.mapper.UserMapper;
 import com.example.ragbackend.model.dto.SpaceRoleRequestCreateDTO;
 import com.example.ragbackend.model.dto.SpaceRoleRequestReviewDTO;
 import com.example.ragbackend.service.SpaceRoleRequestService;
@@ -20,6 +22,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -31,6 +34,9 @@ public class SpaceRoleRequestServiceImpl extends ServiceImpl<SpaceRoleRequestMap
 
     @Autowired
     private KnowledgeSpaceMapper knowledgeSpaceMapper;
+
+    @Autowired
+    private UserMapper userMapper;
 
     @Override
     public SpaceRoleRequest createRequest(Long userId, boolean isSuperAdmin, SpaceRoleRequestCreateDTO dto) {
@@ -73,9 +79,11 @@ public class SpaceRoleRequestServiceImpl extends ServiceImpl<SpaceRoleRequestMap
 
     @Override
     public List<SpaceRoleRequest> listMyRequests(Long userId) {
-        return list(new LambdaQueryWrapper<SpaceRoleRequest>()
+        List<SpaceRoleRequest> requests = list(new LambdaQueryWrapper<SpaceRoleRequest>()
                 .eq(SpaceRoleRequest::getUserId, userId)
                 .orderByDesc(SpaceRoleRequest::getCreateTime));
+        enrichRequests(requests);
+        return requests;
     }
 
     @Override
@@ -87,7 +95,9 @@ public class SpaceRoleRequestServiceImpl extends ServiceImpl<SpaceRoleRequestMap
         }
 
         if (isSuperAdmin) {
-            return list(queryWrapper);
+            List<SpaceRoleRequest> requests = list(queryWrapper);
+            enrichRequests(requests);
+            return requests;
         }
 
         List<Long> managedSpaceIds = listManagedSpaceIds(userId);
@@ -99,7 +109,9 @@ public class SpaceRoleRequestServiceImpl extends ServiceImpl<SpaceRoleRequestMap
         }
 
         queryWrapper.in(SpaceRoleRequest::getSpaceId, managedSpaceIds);
-        return list(queryWrapper);
+        List<SpaceRoleRequest> requests = list(queryWrapper);
+        enrichRequests(requests);
+        return requests;
     }
 
     @Override
@@ -211,6 +223,41 @@ public class SpaceRoleRequestServiceImpl extends ServiceImpl<SpaceRoleRequestMap
             throw new BusinessException(400, "The target role must be VIEW, MEMBER or ADMIN");
         }
         return normalized;
+    }
+
+    private void enrichRequests(List<SpaceRoleRequest> requests) {
+        if (requests == null || requests.isEmpty()) {
+            return;
+        }
+        Map<Long, String> spaceNameMap = knowledgeSpaceMapper.selectBatchIds(requests.stream()
+                        .map(SpaceRoleRequest::getSpaceId)
+                        .filter(id -> id != null)
+                        .distinct()
+                        .collect(Collectors.toList()))
+                .stream()
+                .collect(Collectors.toMap(KnowledgeSpace::getId, KnowledgeSpace::getName));
+        Map<Long, User> userMap = userMapper.selectBatchIds(requests.stream()
+                        .flatMap(request -> java.util.stream.Stream.of(request.getUserId(), request.getReviewBy()))
+                        .filter(id -> id != null)
+                        .distinct()
+                        .collect(Collectors.toList()))
+                .stream()
+                .collect(Collectors.toMap(User::getId, user -> user));
+
+        for (SpaceRoleRequest request : requests) {
+            request.setSpaceName(spaceNameMap.get(request.getSpaceId()));
+            User applicant = userMap.get(request.getUserId());
+            if (applicant != null) {
+                request.setUsername(applicant.getUsername());
+                request.setNickname(applicant.getNickname());
+            }
+            User reviewer = userMap.get(request.getReviewBy());
+            if (reviewer != null) {
+                request.setReviewerName(reviewer.getNickname() != null && !reviewer.getNickname().isBlank()
+                        ? reviewer.getNickname()
+                        : reviewer.getUsername());
+            }
+        }
     }
 
     private void ensureRoleUpgradeAllowed(String currentRole, String targetRole) {

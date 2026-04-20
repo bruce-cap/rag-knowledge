@@ -21,6 +21,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -74,9 +75,11 @@ public class SpaceJoinRequestServiceImpl extends ServiceImpl<SpaceJoinRequestMap
 
     @Override
     public List<SpaceJoinRequest> listMyRequests(Long userId) {
-        return this.list(new LambdaQueryWrapper<SpaceJoinRequest>()
+        List<SpaceJoinRequest> requests = this.list(new LambdaQueryWrapper<SpaceJoinRequest>()
                 .eq(SpaceJoinRequest::getUserId, userId)
                 .orderByDesc(SpaceJoinRequest::getCreateTime));
+        enrichRequests(requests);
+        return requests;
     }
 
     @Override
@@ -89,7 +92,9 @@ public class SpaceJoinRequestServiceImpl extends ServiceImpl<SpaceJoinRequestMap
         }
 
         if (isSuperAdmin) {
-            return this.list(queryWrapper);
+            List<SpaceJoinRequest> requests = this.list(queryWrapper);
+            enrichRequests(requests);
+            return requests;
         }
 
         List<Long> managedSpaceIds = listManagedSpaceIds(userId);
@@ -102,7 +107,9 @@ public class SpaceJoinRequestServiceImpl extends ServiceImpl<SpaceJoinRequestMap
         }
 
         queryWrapper.in(SpaceJoinRequest::getSpaceId, managedSpaceIds);
-        return this.list(queryWrapper);
+        List<SpaceJoinRequest> requests = this.list(queryWrapper);
+        enrichRequests(requests);
+        return requests;
     }
 
     @Override
@@ -242,6 +249,41 @@ public class SpaceJoinRequestServiceImpl extends ServiceImpl<SpaceJoinRequestMap
             throw new BusinessException(400, "The target role must be VIEW, MEMBER or ADMIN");
         }
         return normalized;
+    }
+
+    private void enrichRequests(List<SpaceJoinRequest> requests) {
+        if (requests == null || requests.isEmpty()) {
+            return;
+        }
+        Map<Long, String> spaceNameMap = knowledgeSpaceMapper.selectBatchIds(requests.stream()
+                        .map(SpaceJoinRequest::getSpaceId)
+                        .filter(id -> id != null)
+                        .distinct()
+                        .collect(Collectors.toList()))
+                .stream()
+                .collect(Collectors.toMap(KnowledgeSpace::getId, KnowledgeSpace::getName));
+        Map<Long, User> userMap = userMapper.selectBatchIds(requests.stream()
+                        .flatMap(request -> java.util.stream.Stream.of(request.getUserId(), request.getReviewBy()))
+                        .filter(id -> id != null)
+                        .distinct()
+                        .collect(Collectors.toList()))
+                .stream()
+                .collect(Collectors.toMap(User::getId, user -> user));
+
+        for (SpaceJoinRequest request : requests) {
+            request.setSpaceName(spaceNameMap.get(request.getSpaceId()));
+            User applicant = userMap.get(request.getUserId());
+            if (applicant != null) {
+                request.setUsername(applicant.getUsername());
+                request.setNickname(applicant.getNickname());
+            }
+            User reviewer = userMap.get(request.getReviewBy());
+            if (reviewer != null) {
+                request.setReviewerName(reviewer.getNickname() != null && !reviewer.getNickname().isBlank()
+                        ? reviewer.getNickname()
+                        : reviewer.getUsername());
+            }
+        }
     }
 
     private void ensureReviewerCanGrantRole(String targetRole, Long spaceId, Long userId, boolean isSuperAdmin) {

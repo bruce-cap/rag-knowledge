@@ -4,7 +4,6 @@ import com.example.ragbackend.common.Result;
 import com.example.ragbackend.model.dto.LoginDTO;
 import com.example.ragbackend.model.dto.RegisterDTO;
 import com.example.ragbackend.service.UserService;
-import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -19,9 +18,9 @@ public class AuthController {
     private UserService userService;
 
     @PostMapping("/login")
-    public Result<?> login(@RequestBody LoginDTO loginDTO, HttpServletResponse response) {
+    public Result<?> login(@RequestBody LoginDTO loginDTO) {
         log.info("Login request received, username={}", loginDTO.getUsername());
-        return userService.login(loginDTO, response);
+        return userService.login(loginDTO);
     }
 
     @PostMapping("/register")
@@ -31,8 +30,8 @@ public class AuthController {
     }
 
     @PostMapping("/logout")
-    public Result<?> logout(HttpServletResponse response) {
+    public Result<?> logout() {
         log.info("Logout request received");
-        return userService.logout(response);
+        return userService.logout();
     }
 }

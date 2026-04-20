@@ -13,17 +13,24 @@ import com.example.ragbackend.exception.BusinessException;
 import com.example.ragbackend.mapper.DocumentMapper;
 import com.example.ragbackend.mapper.FolderMapper;
 import com.example.ragbackend.mapper.KnowledgeSpaceMapper;
+import com.example.ragbackend.mapper.SpaceJoinRequestMapper;
 import com.example.ragbackend.mapper.SpaceMemberMapper;
+import com.example.ragbackend.mapper.SpaceRoleRequestMapper;
 import com.example.ragbackend.mapper.UserMapper;
 import com.example.ragbackend.model.dto.KnowledgeSpaceCreateDTO;
 import com.example.ragbackend.model.dto.KnowledgeSpaceUpdateDTO;
 import com.example.ragbackend.model.dto.SpaceMemberAddDTO;
+import com.example.ragbackend.model.vo.UserListItemVO;
+import com.example.ragbackend.service.DocumentService;
 import com.example.ragbackend.service.KnowledgeSpaceService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -40,6 +47,15 @@ public class KnowledgeSpaceServiceImpl extends ServiceImpl<KnowledgeSpaceMapper,
 
     @Autowired
     private UserMapper userMapper;
+
+    @Autowired
+    private SpaceJoinRequestMapper spaceJoinRequestMapper;
+
+    @Autowired
+    private SpaceRoleRequestMapper spaceRoleRequestMapper;
+
+    @Autowired
+    private DocumentService documentService;
 
     @Override
     public List<KnowledgeSpace> listAccessibleSpaces(Long userId, boolean isSuperAdmin) {
@@ -131,6 +147,7 @@ public class KnowledgeSpaceServiceImpl extends ServiceImpl<KnowledgeSpaceMapper,
     }
 
     @Override
+    @Transactional
     public void deleteSpace(Long spaceId, Long userId, boolean isSuperAdmin) {
         ensureSuperAdmin(isSuperAdmin);
         KnowledgeSpace space = getRequiredSpace(spaceId);
@@ -138,18 +155,20 @@ public class KnowledgeSpaceServiceImpl extends ServiceImpl<KnowledgeSpaceMapper,
             throw new BusinessException(400, "System knowledge spaces cannot be deleted");
         }
 
-        long folderCount = folderMapper.selectCount(new LambdaQueryWrapper<Folder>()
-                .eq(Folder::getSpaceId, spaceId));
-        if (folderCount > 0) {
-            throw new BusinessException(400, "Cannot delete a space that still contains folders");
+        documentService.purgeDocumentsBySpaceId(spaceId);
+
+        List<Folder> folders = folderMapper.selectList(new LambdaQueryWrapper<Folder>()
+                .eq(Folder::getSpaceId, spaceId)
+                .orderByAsc(Folder::getCreateTime));
+        List<Folder> orderedFolders = orderFoldersForDeletion(folders);
+        for (Folder folder : orderedFolders) {
+            folderMapper.deleteById(folder.getId());
         }
 
-        long documentCount = documentMapper.selectCount(new LambdaQueryWrapper<Document>()
-                .eq(Document::getSpaceId, spaceId));
-        if (documentCount > 0) {
-            throw new BusinessException(400, "Cannot delete a space that still contains documents");
-        }
-
+        spaceJoinRequestMapper.delete(new LambdaQueryWrapper<com.example.ragbackend.entity.SpaceJoinRequest>()
+                .eq(com.example.ragbackend.entity.SpaceJoinRequest::getSpaceId, spaceId));
+        spaceRoleRequestMapper.delete(new LambdaQueryWrapper<com.example.ragbackend.entity.SpaceRoleRequest>()
+                .eq(com.example.ragbackend.entity.SpaceRoleRequest::getSpaceId, spaceId));
         spaceMemberMapper.delete(new LambdaQueryWrapper<SpaceMember>().eq(SpaceMember::getSpaceId, spaceId));
         this.removeById(spaceId);
     }
@@ -157,9 +176,31 @@ public class KnowledgeSpaceServiceImpl extends ServiceImpl<KnowledgeSpaceMapper,
     @Override
     public List<SpaceMember> listMembers(Long spaceId, Long userId, boolean isSuperAdmin) {
         ensureSpaceViewPermission(spaceId, userId, isSuperAdmin);
-        return spaceMemberMapper.selectList(new LambdaQueryWrapper<SpaceMember>()
+        List<SpaceMember> members = spaceMemberMapper.selectList(new LambdaQueryWrapper<SpaceMember>()
                 .eq(SpaceMember::getSpaceId, spaceId)
                 .orderByAsc(SpaceMember::getJoinTime));
+        enrichMembers(members);
+        return members;
+    }
+
+    @Override
+    public List<UserListItemVO> listInvitableUsers(Long spaceId, Long userId, boolean isSuperAdmin) {
+        ensureInvitePermission(spaceId, userId, isSuperAdmin);
+
+        Set<Long> memberIds = spaceMemberMapper.selectList(new LambdaQueryWrapper<SpaceMember>()
+                        .eq(SpaceMember::getSpaceId, spaceId))
+                .stream()
+                .map(SpaceMember::getUserId)
+                .collect(Collectors.toSet());
+
+        return userMapper.selectList(new LambdaQueryWrapper<User>()
+                        .eq(User::getRole, "USER")
+                        .eq(User::getStatus, 1)
+                        .orderByDesc(User::getCreateTime))
+                .stream()
+                .filter(user -> !memberIds.contains(user.getId()))
+                .map(this::toUserListItem)
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -247,6 +288,46 @@ public class KnowledgeSpaceServiceImpl extends ServiceImpl<KnowledgeSpaceMapper,
             throw new BusinessException(404, "User not found");
         }
         return user;
+    }
+
+    private void enrichMembers(List<SpaceMember> members) {
+        if (members == null || members.isEmpty()) {
+            return;
+        }
+        Map<Long, User> userMap = userMapper.selectBatchIds(members.stream()
+                        .map(SpaceMember::getUserId)
+                        .distinct()
+                        .collect(Collectors.toList()))
+                .stream()
+                .collect(Collectors.toMap(User::getId, user -> user));
+        for (SpaceMember member : members) {
+            User user = userMap.get(member.getUserId());
+            if (user != null) {
+                member.setUsername(user.getUsername());
+                member.setNickname(user.getNickname());
+            }
+        }
+    }
+
+    private List<Folder> orderFoldersForDeletion(List<Folder> folders) {
+        if (folders == null || folders.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, List<Folder>> childrenMap = folders.stream()
+                .filter(folder -> folder.getParentId() != null)
+                .collect(Collectors.groupingBy(Folder::getParentId));
+        List<Folder> ordered = new java.util.ArrayList<>();
+        folders.stream()
+                .filter(folder -> folder.getParentId() == null)
+                .forEach(folder -> collectFolderPostOrder(folder, childrenMap, ordered));
+        return ordered;
+    }
+
+    private void collectFolderPostOrder(Folder folder, Map<Long, List<Folder>> childrenMap, List<Folder> ordered) {
+        for (Folder child : childrenMap.getOrDefault(folder.getId(), List.of())) {
+            collectFolderPostOrder(child, childrenMap, ordered);
+        }
+        ordered.add(folder);
     }
 
     private SpaceMember getRequiredMember(Long spaceId, Long userId) {
@@ -374,5 +455,19 @@ public class KnowledgeSpaceServiceImpl extends ServiceImpl<KnowledgeSpaceMapper,
         if (SpaceJoinRequestConstants.ADMIN_ROLE.equalsIgnoreCase(targetRole)) {
             throw new BusinessException(403, "Space admin cannot promote a member to ADMIN");
         }
+    }
+
+    private UserListItemVO toUserListItem(User user) {
+        UserListItemVO vo = new UserListItemVO();
+        vo.setId(user.getId());
+        vo.setUsername(user.getUsername());
+        vo.setEmail(user.getEmail());
+        vo.setNickname(user.getNickname());
+        vo.setPhone(user.getPhone());
+        vo.setRole(user.getRole());
+        vo.setStatus(user.getStatus());
+        vo.setCreateTime(user.getCreateTime());
+        vo.setUpdateTime(user.getUpdateTime());
+        return vo;
     }
 }

@@ -1,6 +1,7 @@
 package com.example.ragbackend.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -21,4 +22,10 @@ public class SpaceMember {
     private String role;
 
     private LocalDateTime joinTime;
+
+    @TableField(exist = false)
+    private String username;
+
+    @TableField(exist = false)
+    private String nickname;
 }

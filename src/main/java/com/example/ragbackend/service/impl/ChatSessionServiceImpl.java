@@ -1,6 +1,7 @@
 package com.example.ragbackend.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.example.ragbackend.entity.ChatMessageEntity;
 import com.example.ragbackend.entity.ChatSessionEntity;
@@ -80,9 +81,13 @@ public class ChatSessionServiceImpl extends ServiceImpl<ChatSessionMapper, ChatS
     @Override
     public ChatSessionEntity unpinSession(Long sessionId, Long userId) {
         ChatSessionEntity session = getOwnedSession(sessionId, userId);
+        update(new UpdateWrapper<ChatSessionEntity>()
+                .eq("id", sessionId)
+                .eq("user_id", userId)
+                .set("is_pinned", false)
+                .set("pin_time", null));
         session.setIsPinned(false);
         session.setPinTime(null);
-        updateById(session);
         return session;
     }
 

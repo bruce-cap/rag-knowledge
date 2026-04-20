@@ -10,15 +10,14 @@ import com.example.ragbackend.model.dto.UserProfileUpdateDTO;
 import com.example.ragbackend.model.vo.UserDetailVO;
 import com.example.ragbackend.model.vo.UserListItemVO;
 import com.example.ragbackend.model.vo.UserProfileVO;
-import jakarta.servlet.http.HttpServletResponse;
 
 import java.util.List;
 
 public interface UserService extends IService<User> {
 
-    Result<?> login(LoginDTO loginDTO, HttpServletResponse response);
+    Result<?> login(LoginDTO loginDTO);
 
-    Result<?> logout(HttpServletResponse response);
+    Result<?> logout();
 
     Result<?> register(RegisterDTO registerDTO);
 

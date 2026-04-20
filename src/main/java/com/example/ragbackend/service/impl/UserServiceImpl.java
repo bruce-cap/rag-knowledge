@@ -21,8 +21,6 @@ import com.example.ragbackend.model.vo.UserListItemVO;
 import com.example.ragbackend.model.vo.UserProfileVO;
 import com.example.ragbackend.service.UserService;
 import com.example.ragbackend.utils.JwtUtils;
-import jakarta.servlet.http.Cookie;
-import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -51,7 +49,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     }
 
     @Override
-    public Result<?> login(LoginDTO loginDTO, HttpServletResponse response) {
+    public Result<?> login(LoginDTO loginDTO) {
         log.info("Attempt login, username={}", loginDTO.getUsername());
         User user = getOne(new LambdaQueryWrapper<User>()
                 .eq(User::getUsername, loginDTO.getUsername())
@@ -68,13 +66,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
         String token = JwtUtils.createToken(user.getUsername(), user.getId(), user.getRole());
 
-        Cookie cookie = new Cookie("jwt_token", token);
-        cookie.setHttpOnly(true);
-        cookie.setSecure(false);
-        cookie.setPath("/");
-        cookie.setMaxAge(86400);
-        response.addCookie(cookie);
-
         Map<String, Object> map = new HashMap<>();
         map.put("token", token);
         map.put("username", user.getUsername());
@@ -88,13 +79,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     }
 
     @Override
-    public Result<?> logout(HttpServletResponse response) {
-        Cookie cookie = new Cookie("jwt_token", null);
-        cookie.setHttpOnly(true);
-        cookie.setSecure(false);
-        cookie.setPath("/");
-        cookie.setMaxAge(0);
-        response.addCookie(cookie);
+    public Result<?> logout() {
         log.info("Logout succeeded");
         return Result.success("Logout successful");
     }

@@ -6,6 +6,7 @@ import com.example.ragbackend.entity.SpaceMember;
 import com.example.ragbackend.model.dto.KnowledgeSpaceCreateDTO;
 import com.example.ragbackend.model.dto.KnowledgeSpaceUpdateDTO;
 import com.example.ragbackend.model.dto.SpaceMemberAddDTO;
+import com.example.ragbackend.model.vo.UserListItemVO;
 
 import java.util.List;
 
@@ -22,6 +23,8 @@ public interface KnowledgeSpaceService extends IService<KnowledgeSpace> {
     void deleteSpace(Long spaceId, Long userId, boolean isSuperAdmin);
 
     List<SpaceMember> listMembers(Long spaceId, Long userId, boolean isSuperAdmin);
+
+    List<UserListItemVO> listInvitableUsers(Long spaceId, Long userId, boolean isSuperAdmin);
 
     SpaceMember addMember(Long spaceId, Long operatorId, boolean isSuperAdmin, SpaceMemberAddDTO dto);
 

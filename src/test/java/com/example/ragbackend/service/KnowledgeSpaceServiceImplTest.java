@@ -2,13 +2,16 @@ package com.example.ragbackend.service;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.example.ragbackend.constant.SpaceJoinRequestConstants;
+import com.example.ragbackend.entity.Folder;
 import com.example.ragbackend.entity.KnowledgeSpace;
 import com.example.ragbackend.entity.SpaceMember;
 import com.example.ragbackend.entity.User;
 import com.example.ragbackend.exception.BusinessException;
 import com.example.ragbackend.mapper.DocumentMapper;
 import com.example.ragbackend.mapper.FolderMapper;
+import com.example.ragbackend.mapper.SpaceJoinRequestMapper;
 import com.example.ragbackend.mapper.SpaceMemberMapper;
+import com.example.ragbackend.mapper.SpaceRoleRequestMapper;
 import com.example.ragbackend.mapper.UserMapper;
 import com.example.ragbackend.model.dto.KnowledgeSpaceCreateDTO;
 import com.example.ragbackend.model.dto.KnowledgeSpaceUpdateDTO;
@@ -20,6 +23,8 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -44,6 +49,15 @@ class KnowledgeSpaceServiceImplTest {
 
     @Mock
     private UserMapper userMapper;
+
+    @Mock
+    private SpaceJoinRequestMapper spaceJoinRequestMapper;
+
+    @Mock
+    private SpaceRoleRequestMapper spaceRoleRequestMapper;
+
+    @Mock
+    private DocumentService documentService;
 
     @Spy
     @InjectMocks
@@ -200,5 +214,35 @@ class KnowledgeSpaceServiceImplTest {
         assertEquals(1, spaces.size());
         assertEquals(20L, spaces.get(0).getId());
         assertFalse(Boolean.TRUE.equals(spaces.get(0).getIsSystem()));
+    }
+
+    @Test
+    void deleteSpaceShouldCascadeCleanupBeforeRemovingSpace() {
+        KnowledgeSpace space = new KnowledgeSpace();
+        space.setId(10L);
+        space.setIsSystem(false);
+
+        Folder root = new Folder();
+        root.setId(1L);
+        root.setSpaceId(10L);
+
+        Folder child = new Folder();
+        child.setId(2L);
+        child.setSpaceId(10L);
+        child.setParentId(1L);
+
+        doReturn(space).when(knowledgeSpaceService).getById(10L);
+        when(folderMapper.selectList(any())).thenReturn(List.of(root, child));
+        doReturn(true).when(knowledgeSpaceService).removeById(10L);
+
+        knowledgeSpaceService.deleteSpace(10L, 99L, true);
+
+        verify(documentService).purgeDocumentsBySpaceId(10L);
+        verify(folderMapper).deleteById(2L);
+        verify(folderMapper).deleteById(1L);
+        verify(spaceJoinRequestMapper).delete(any());
+        verify(spaceRoleRequestMapper).delete(any());
+        verify(spaceMemberMapper).delete(any());
+        verify(knowledgeSpaceService).removeById(10L);
     }
 }

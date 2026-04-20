@@ -11,9 +11,11 @@ import com.example.ragbackend.mapper.FolderMapper;
 import com.example.ragbackend.mapper.SpaceMemberMapper;
 import com.example.ragbackend.model.dto.FolderCreateDTO;
 import com.example.ragbackend.model.dto.FolderUpdateDTO;
+import com.example.ragbackend.service.DocumentService;
 import com.example.ragbackend.service.FolderService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -30,6 +32,9 @@ public class FolderServiceImpl extends ServiceImpl<FolderMapper, Folder> impleme
 
     @Autowired
     private DocumentMapper documentMapper;
+
+    @Autowired
+    private DocumentService documentService;
 
     @Override
     public List<Folder> getFolderTree(Long spaceId, Long userId, boolean isAdmin) {
@@ -94,22 +99,21 @@ public class FolderServiceImpl extends ServiceImpl<FolderMapper, Folder> impleme
     }
 
     @Override
+    @Transactional
     public void deleteFolder(Long folderId, Long userId, boolean isAdmin) {
         Folder folder = getRequiredFolder(folderId);
         ensureSpaceManagePermission(folder.getSpaceId(), userId, isAdmin);
 
-        long childCount = this.count(new LambdaQueryWrapper<Folder>().eq(Folder::getParentId, folderId));
-        if (childCount > 0) {
-            throw new BusinessException(400, "Cannot delete a folder that still has child folders");
-        }
+        List<Folder> allFoldersInSpace = this.list(new LambdaQueryWrapper<Folder>()
+                .eq(Folder::getSpaceId, folder.getSpaceId())
+                .orderByAsc(Folder::getCreateTime));
+        List<Folder> foldersToDelete = collectFoldersForDeletion(folderId, allFoldersInSpace);
+        List<Long> folderIds = foldersToDelete.stream().map(Folder::getId).collect(Collectors.toList());
+        documentService.purgeDocumentsByFolderIds(folderIds);
 
-        long documentCount = documentMapper.selectCount(new LambdaQueryWrapper<Document>()
-                .eq(Document::getFolderId, folderId));
-        if (documentCount > 0) {
-            throw new BusinessException(400, "Cannot delete a folder that still contains documents");
+        for (Folder current : foldersToDelete) {
+            this.removeById(current.getId());
         }
-
-        this.removeById(folderId);
     }
 
     private Folder getRequiredFolder(Long folderId) {
@@ -166,5 +170,28 @@ public class FolderServiceImpl extends ServiceImpl<FolderMapper, Folder> impleme
             parent.getChildren().add(folder);
         }
         return roots;
+    }
+
+    private List<Folder> collectFoldersForDeletion(Long rootFolderId, List<Folder> allFolders) {
+        Map<Long, List<Folder>> childrenMap = allFolders.stream()
+                .filter(folder -> folder.getParentId() != null)
+                .collect(Collectors.groupingBy(Folder::getParentId));
+        Map<Long, Folder> folderMap = allFolders.stream()
+                .collect(Collectors.toMap(Folder::getId, Function.identity()));
+        Folder root = folderMap.get(rootFolderId);
+        if (root == null) {
+            throw new BusinessException(404, "Folder not found");
+        }
+
+        List<Folder> ordered = new ArrayList<>();
+        collectFolderPostOrder(root, childrenMap, ordered);
+        return ordered;
+    }
+
+    private void collectFolderPostOrder(Folder folder, Map<Long, List<Folder>> childrenMap, List<Folder> ordered) {
+        for (Folder child : childrenMap.getOrDefault(folder.getId(), List.of())) {
+            collectFolderPostOrder(child, childrenMap, ordered);
+        }
+        ordered.add(folder);
     }
 }
