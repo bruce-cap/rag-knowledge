@@ -6,6 +6,7 @@ import com.example.ragbackend.entity.SpaceMember;
 import com.example.ragbackend.mapper.SpaceMemberMapper;
 import com.example.ragbackend.service.SpaceAccessService;
 import dev.langchain4j.store.embedding.filter.Filter;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -14,6 +15,7 @@ import java.util.stream.Collectors;
 
 import static dev.langchain4j.store.embedding.filter.MetadataFilterBuilder.metadataKey;
 
+@Slf4j
 @Service
 public class SpaceAccessServiceImpl implements SpaceAccessService {
 

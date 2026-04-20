@@ -10,6 +10,7 @@ import com.example.ragbackend.mapper.ChatMessageMapper;
 import com.example.ragbackend.mapper.ChatSessionMapper;
 import com.example.ragbackend.service.ChatSessionService;
 import com.example.ragbackend.service.ChatTitleService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -17,6 +18,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 
+@Slf4j
 @Service
 public class ChatSessionServiceImpl extends ServiceImpl<ChatSessionMapper, ChatSessionEntity> implements ChatSessionService {
 
@@ -30,6 +32,7 @@ public class ChatSessionServiceImpl extends ServiceImpl<ChatSessionMapper, ChatS
 
     @Override
     public Long createSession(Long userId) {
+        log.info("Creating chat session, userId={}", userId);
         ChatSessionEntity session = new ChatSessionEntity();
         session.setUserId(userId);
         session.setTitle(DEFAULT_TITLE);
@@ -37,11 +40,13 @@ public class ChatSessionServiceImpl extends ServiceImpl<ChatSessionMapper, ChatS
         session.setIsPinned(false);
         session.setPinTime(null);
         save(session);
+        log.info("Chat session created, sessionId={}, userId={}", session.getId(), userId);
         return session.getId();
     }
 
     @Override
     public List<ChatSessionEntity> getUserSessions(Long userId) {
+        log.debug("Fetching chat sessions, userId={}", userId);
         return list(new LambdaQueryWrapper<ChatSessionEntity>()
                 .eq(ChatSessionEntity::getUserId, userId)
                 .orderByDesc(ChatSessionEntity::getIsPinned)
@@ -51,13 +56,17 @@ public class ChatSessionServiceImpl extends ServiceImpl<ChatSessionMapper, ChatS
 
     @Override
     public boolean deleteSession(Long sessionId, Long userId) {
-        return remove(new LambdaQueryWrapper<ChatSessionEntity>()
+        log.info("Deleting chat session, sessionId={}, userId={}", sessionId, userId);
+        boolean result = remove(new LambdaQueryWrapper<ChatSessionEntity>()
                 .eq(ChatSessionEntity::getId, sessionId)
                 .eq(ChatSessionEntity::getUserId, userId));
+        log.info("Chat session deleted, sessionId={}, userId={}, result={}", sessionId, userId, result);
+        return result;
     }
 
     @Override
     public ChatSessionEntity updateSessionTitle(Long sessionId, Long userId, String title) {
+        log.info("Updating chat session title, sessionId={}, userId={}, title={}", sessionId, userId, title);
         if (title == null || title.trim().isEmpty()) {
             throw new BusinessException(400, "Title cannot be empty");
         }
@@ -71,6 +80,7 @@ public class ChatSessionServiceImpl extends ServiceImpl<ChatSessionMapper, ChatS
 
     @Override
     public ChatSessionEntity pinSession(Long sessionId, Long userId) {
+        log.info("Pinning chat session, sessionId={}, userId={}", sessionId, userId);
         ChatSessionEntity session = getOwnedSession(sessionId, userId);
         session.setIsPinned(true);
         session.setPinTime(LocalDateTime.now());
@@ -80,6 +90,7 @@ public class ChatSessionServiceImpl extends ServiceImpl<ChatSessionMapper, ChatS
 
     @Override
     public ChatSessionEntity unpinSession(Long sessionId, Long userId) {
+        log.info("Unpinning chat session, sessionId={}, userId={}", sessionId, userId);
         ChatSessionEntity session = getOwnedSession(sessionId, userId);
         update(new UpdateWrapper<ChatSessionEntity>()
                 .eq("id", sessionId)
@@ -93,6 +104,7 @@ public class ChatSessionServiceImpl extends ServiceImpl<ChatSessionMapper, ChatS
 
     @Override
     public String exportSessionMarkdown(Long sessionId, Long userId) {
+        log.info("Exporting chat session to markdown, sessionId={}, userId={}", sessionId, userId);
         ChatSessionEntity session = getOwnedSession(sessionId, userId);
         List<ChatMessageEntity> messages = chatMessageMapper.selectList(new LambdaQueryWrapper<ChatMessageEntity>()
                 .eq(ChatMessageEntity::getSessionId, sessionId)
@@ -107,6 +119,7 @@ public class ChatSessionServiceImpl extends ServiceImpl<ChatSessionMapper, ChatS
             markdown.append(message.getContent()).append("\n\n");
         }
 
+        log.info("Chat session exported to markdown, sessionId={}, messageCount={}", sessionId, messages.size());
         return markdown.toString();
     }
 

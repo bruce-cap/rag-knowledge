@@ -23,6 +23,7 @@ import com.example.ragbackend.model.dto.SpaceMemberAddDTO;
 import com.example.ragbackend.model.vo.UserListItemVO;
 import com.example.ragbackend.service.DocumentService;
 import com.example.ragbackend.service.KnowledgeSpaceService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,6 +34,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 public class KnowledgeSpaceServiceImpl extends ServiceImpl<KnowledgeSpaceMapper, KnowledgeSpace> implements KnowledgeSpaceService {
 
@@ -101,6 +103,7 @@ public class KnowledgeSpaceServiceImpl extends ServiceImpl<KnowledgeSpaceMapper,
 
     @Override
     public KnowledgeSpace createSpace(Long userId, boolean isSuperAdmin, KnowledgeSpaceCreateDTO dto) {
+        log.info("Creating knowledge space, userId={}, name={}", userId, dto.getName());
         ensureSuperAdmin(isSuperAdmin);
         validateSpaceName(dto.getName());
 
@@ -123,11 +126,13 @@ public class KnowledgeSpaceServiceImpl extends ServiceImpl<KnowledgeSpaceMapper,
         creatorMembership.setJoinTime(LocalDateTime.now());
         spaceMemberMapper.insert(creatorMembership);
 
+        log.info("Knowledge space created, spaceId={}, userId={}", space.getId(), userId);
         return space;
     }
 
     @Override
     public KnowledgeSpace updateSpace(Long spaceId, Long userId, boolean isSuperAdmin, KnowledgeSpaceUpdateDTO dto) {
+        log.info("Updating knowledge space, spaceId={}, userId={}", spaceId, userId);
         KnowledgeSpace space = getRequiredSpace(spaceId);
         ensureSpaceManagePermission(spaceId, userId, isSuperAdmin);
 
@@ -149,6 +154,7 @@ public class KnowledgeSpaceServiceImpl extends ServiceImpl<KnowledgeSpaceMapper,
     @Override
     @Transactional
     public void deleteSpace(Long spaceId, Long userId, boolean isSuperAdmin) {
+        log.info("Deleting knowledge space, spaceId={}, userId={}", spaceId, userId);
         ensureSuperAdmin(isSuperAdmin);
         KnowledgeSpace space = getRequiredSpace(spaceId);
         if (Boolean.TRUE.equals(space.getIsSystem())) {
@@ -171,6 +177,7 @@ public class KnowledgeSpaceServiceImpl extends ServiceImpl<KnowledgeSpaceMapper,
                 .eq(com.example.ragbackend.entity.SpaceRoleRequest::getSpaceId, spaceId));
         spaceMemberMapper.delete(new LambdaQueryWrapper<SpaceMember>().eq(SpaceMember::getSpaceId, spaceId));
         this.removeById(spaceId);
+        log.info("Knowledge space deleted, spaceId={}, userId={}", spaceId, userId);
     }
 
     @Override

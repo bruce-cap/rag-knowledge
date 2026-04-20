@@ -13,6 +13,7 @@ import com.example.ragbackend.model.dto.FolderCreateDTO;
 import com.example.ragbackend.model.dto.FolderUpdateDTO;
 import com.example.ragbackend.service.DocumentService;
 import com.example.ragbackend.service.FolderService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,6 +25,7 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 public class FolderServiceImpl extends ServiceImpl<FolderMapper, Folder> implements FolderService {
 
@@ -38,6 +40,7 @@ public class FolderServiceImpl extends ServiceImpl<FolderMapper, Folder> impleme
 
     @Override
     public List<Folder> getFolderTree(Long spaceId, Long userId, boolean isAdmin) {
+        log.debug("Fetching folder tree, spaceId={}, userId={}, isAdmin={}", spaceId, userId, isAdmin);
         ensureSpaceViewPermission(spaceId, userId, isAdmin);
         List<Folder> folders = this.list(new LambdaQueryWrapper<Folder>()
                 .eq(Folder::getSpaceId, spaceId)
@@ -47,6 +50,7 @@ public class FolderServiceImpl extends ServiceImpl<FolderMapper, Folder> impleme
 
     @Override
     public Folder createFolder(Long userId, boolean isAdmin, FolderCreateDTO dto) {
+        log.info("Creating folder, userId={}, spaceId={}, name={}", userId, dto.getSpaceId(), dto.getName());
         if (dto.getSpaceId() == null) {
             throw new BusinessException(400, "Space ID cannot be null");
         }
@@ -69,11 +73,13 @@ public class FolderServiceImpl extends ServiceImpl<FolderMapper, Folder> impleme
         folder.setCreateTime(LocalDateTime.now());
         folder.setUpdateTime(LocalDateTime.now());
         this.save(folder);
+        log.info("Folder created, folderId={}, userId={}", folder.getId(), userId);
         return folder;
     }
 
     @Override
     public Folder updateFolder(Long folderId, Long userId, boolean isAdmin, FolderUpdateDTO dto) {
+        log.info("Updating folder, folderId={}, userId={}", folderId, userId);
         Folder folder = getRequiredFolder(folderId);
         ensureSpaceManagePermission(folder.getSpaceId(), userId, isAdmin);
 
@@ -101,6 +107,7 @@ public class FolderServiceImpl extends ServiceImpl<FolderMapper, Folder> impleme
     @Override
     @Transactional
     public void deleteFolder(Long folderId, Long userId, boolean isAdmin) {
+        log.info("Deleting folder, folderId={}, userId={}", folderId, userId);
         Folder folder = getRequiredFolder(folderId);
         ensureSpaceManagePermission(folder.getSpaceId(), userId, isAdmin);
 
@@ -114,6 +121,7 @@ public class FolderServiceImpl extends ServiceImpl<FolderMapper, Folder> impleme
         for (Folder current : foldersToDelete) {
             this.removeById(current.getId());
         }
+        log.info("Folder deleted, folderId={}, userId={}, affectedFolders={}", folderId, userId, folderIds.size());
     }
 
     private Folder getRequiredFolder(Long folderId) {

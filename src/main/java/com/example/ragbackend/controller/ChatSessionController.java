@@ -26,19 +26,21 @@ public class ChatSessionController {
     @PostMapping("/create")
     public Result<Long> createChatSession() {
         Long userId = SecurityUtils.getCurrentUserId();
-        log.info("Create chat session, userId={}", userId);
+        log.info("Create chat session request, userId={}", userId);
         return Result.success(sessionService.createSession(userId));
     }
 
     @GetMapping("/list")
     public Result<List<ChatSessionEntity>> listChatSession() {
         Long userId = SecurityUtils.getCurrentUserId();
+        log.debug("List chat sessions request, userId={}", userId);
         return Result.success(sessionService.getUserSessions(userId));
     }
 
     @DeleteMapping("/delete/{id}")
     public Result<String> deleteChatSession(@PathVariable Long id) {
         Long userId = SecurityUtils.getCurrentUserId();
+        log.info("Delete chat session request, userId={}, sessionId={}", userId, id);
         boolean success = sessionService.deleteSession(id, userId);
         return success ? Result.success("删除成功") : Result.error("删除失败或无权限");
     }
@@ -49,24 +51,28 @@ public class ChatSessionController {
                                                  @RequestParam(value = "title", required = false) String title) {
         Long userId = SecurityUtils.getCurrentUserId();
         String finalTitle = dto != null ? dto.getTitle() : title;
+        log.info("Update chat session title request, userId={}, sessionId={}, title={}", userId, id, finalTitle);
         return Result.success(sessionService.updateSessionTitle(id, userId, finalTitle));
     }
 
     @PutMapping("/pin/{id}")
     public Result<ChatSessionEntity> pinSession(@PathVariable Long id) {
         Long userId = SecurityUtils.getCurrentUserId();
+        log.info("Pin chat session request, userId={}, sessionId={}", userId, id);
         return Result.success(sessionService.pinSession(id, userId));
     }
 
     @PutMapping("/unpin/{id}")
     public Result<ChatSessionEntity> unpinSession(@PathVariable Long id) {
         Long userId = SecurityUtils.getCurrentUserId();
+        log.info("Unpin chat session request, userId={}, sessionId={}", userId, id);
         return Result.success(sessionService.unpinSession(id, userId));
     }
 
     @GetMapping("/exportMd/{id}")
     public ResponseEntity<byte[]> exportMarkdown(@PathVariable Long id) {
         Long userId = SecurityUtils.getCurrentUserId();
+        log.info("Export chat session markdown request, userId={}, sessionId={}", userId, id);
         String markdown = sessionService.exportSessionMarkdown(id, userId);
         String fileName = "session-" + id + ".md";
         return ResponseEntity.ok()
