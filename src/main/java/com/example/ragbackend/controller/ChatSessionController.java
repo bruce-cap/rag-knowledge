@@ -44,9 +44,12 @@ public class ChatSessionController {
     }
 
     @PutMapping("/updateTitle/{id}")
-    public Result<ChatSessionEntity> updateTitle(@PathVariable Long id, @RequestBody ChatSessionTitleUpdateDTO dto) {
+    public Result<ChatSessionEntity> updateTitle(@PathVariable Long id,
+                                                 @RequestBody(required = false) ChatSessionTitleUpdateDTO dto,
+                                                 @RequestParam(value = "title", required = false) String title) {
         Long userId = SecurityUtils.getCurrentUserId();
-        return Result.success(sessionService.updateSessionTitle(id, userId, dto == null ? null : dto.getTitle()));
+        String finalTitle = dto != null ? dto.getTitle() : title;
+        return Result.success(sessionService.updateSessionTitle(id, userId, finalTitle));
     }
 
     @PutMapping("/pin/{id}")

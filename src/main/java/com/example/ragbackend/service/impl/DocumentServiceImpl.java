@@ -91,7 +91,7 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
             document.setMinioPath(minioPath);
             document.setFileSize(file.getSize());
             document.setFileType(resolveFileType(originalFilename));
-            document.setMimeType(file.getContentType());
+            document.setMimeType(resolveMimeType(file.getContentType(), originalFilename));
             document.setStatus(STATUS_PENDING);
             document.setIsDeleted(false);
             document.setDeleteTime(null);
@@ -331,5 +331,22 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
             return "unknown";
         }
         return originalFilename.substring(originalFilename.lastIndexOf('.') + 1).toLowerCase();
+    }
+
+    private String resolveMimeType(String sourceMimeType, String originalFilename) {
+        if (sourceMimeType != null && !sourceMimeType.isBlank()
+                && !"application/octet-stream".equalsIgnoreCase(sourceMimeType)) {
+            return sourceMimeType;
+        }
+
+        String fileType = resolveFileType(originalFilename);
+        return switch (fileType) {
+            case "pdf" -> "application/pdf";
+            case "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+            case "doc" -> "application/msword";
+            case "md" -> "text/markdown";
+            case "txt" -> "text/plain";
+            default -> "application/octet-stream";
+        };
     }
 }

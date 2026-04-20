@@ -16,6 +16,9 @@ import dev.langchain4j.store.embedding.filter.Filter;
 import io.minio.GetObjectArgs;
 import io.minio.MinioClient;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.tika.Tika;
+import org.apache.tika.parser.txt.CharsetDetector;
+import org.apache.tika.parser.txt.CharsetMatch;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -23,11 +26,14 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @RestController
@@ -35,6 +41,9 @@ import java.util.stream.Collectors;
 @CrossOrigin
 @Slf4j
 public class DocumentController {
+
+    private static final Set<String> TEXT_FILE_TYPES = Set.of("txt", "md");
+    private static final Set<String> OFFICE_FILE_TYPES = Set.of("doc", "docx");
 
     @Autowired
     private DocumentService documentService;
@@ -50,6 +59,8 @@ public class DocumentController {
 
     @Autowired
     private MinioClient minioClient;
+
+    private final Tika tika = new Tika();
 
     @org.springframework.beans.factory.annotation.Value("${minio.bucketName}")
     private String bucketName;
@@ -133,19 +144,16 @@ public class DocumentController {
                 .object(document.getMinioPath())
                 .build())) {
             byte[] bytes = inputStream.readAllBytes();
-            String contentType = document.getMimeType() == null || document.getMimeType().isBlank()
-                    ? MediaType.APPLICATION_OCTET_STREAM_VALUE
-                    : document.getMimeType();
             return ResponseEntity.ok()
                     .header(HttpHeaders.CONTENT_DISPOSITION,
                             "attachment; filename*=UTF-8''" + java.net.URLEncoder.encode(document.getFileName(), StandardCharsets.UTF_8))
-                    .contentType(MediaType.parseMediaType(contentType))
+                    .contentType(MediaType.parseMediaType(resolveContentType(document)))
                     .body(bytes);
         }
     }
 
     @GetMapping("/preview/{id}")
-    public ResponseEntity<byte[]> previewDocument(@PathVariable("id") Long id) throws Exception {
+    public ResponseEntity<?> previewDocument(@PathVariable("id") Long id) throws Exception {
         Long userId = SecurityUtils.getCurrentUserId();
         Document document = documentService.getAccessibleDocument(id, userId);
         try (InputStream inputStream = minioClient.getObject(GetObjectArgs.builder()
@@ -153,14 +161,139 @@ public class DocumentController {
                 .object(document.getMinioPath())
                 .build())) {
             byte[] bytes = inputStream.readAllBytes();
-            String contentType = document.getMimeType() == null || document.getMimeType().isBlank()
-                    ? MediaType.APPLICATION_OCTET_STREAM_VALUE
-                    : document.getMimeType();
+            String fileType = document.getFileType() == null ? "" : document.getFileType().toLowerCase();
+
+            if ("pdf".equals(fileType)) {
+                return ResponseEntity.ok()
+                        .header(HttpHeaders.CONTENT_DISPOSITION,
+                                "inline; filename*=UTF-8''" + java.net.URLEncoder.encode(document.getFileName(), StandardCharsets.UTF_8))
+                        .contentType(MediaType.APPLICATION_PDF)
+                        .body(bytes);
+            }
+
+            if (TEXT_FILE_TYPES.contains(fileType)) {
+                Charset charset = detectCharset(bytes);
+                String text = new String(bytes, charset);
+                return ResponseEntity.ok()
+                        .contentType(MediaType.parseMediaType("text/html;charset=UTF-8"))
+                        .body(buildTextPreviewHtml(document.getFileName(), text, "md".equals(fileType)));
+            }
+
+            if (OFFICE_FILE_TYPES.contains(fileType)) {
+                String extractedText = tika.parseToString(new ByteArrayInputStream(bytes));
+                return ResponseEntity.ok()
+                        .contentType(MediaType.parseMediaType("text/html;charset=UTF-8"))
+                        .body(buildTextPreviewHtml(document.getFileName(), extractedText, false));
+            }
+
             return ResponseEntity.ok()
                     .header(HttpHeaders.CONTENT_DISPOSITION,
                             "inline; filename*=UTF-8''" + java.net.URLEncoder.encode(document.getFileName(), StandardCharsets.UTF_8))
-                    .contentType(MediaType.parseMediaType(contentType))
+                    .contentType(MediaType.parseMediaType(resolveContentType(document)))
                     .body(bytes);
         }
+    }
+
+    private String resolveContentType(Document document) {
+        String mimeType = document.getMimeType();
+        if (mimeType != null && !mimeType.isBlank() && !"application/octet-stream".equalsIgnoreCase(mimeType)) {
+            if ("text/plain".equalsIgnoreCase(mimeType)) {
+                return "text/plain;charset=UTF-8";
+            }
+            if ("text/markdown".equalsIgnoreCase(mimeType)) {
+                return "text/markdown;charset=UTF-8";
+            }
+            return mimeType;
+        }
+
+        String fileType = document.getFileType() == null ? "" : document.getFileType().toLowerCase();
+        return switch (fileType) {
+            case "pdf" -> "application/pdf";
+            case "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+            case "doc" -> "application/msword";
+            case "md" -> "text/markdown;charset=UTF-8";
+            case "txt" -> "text/plain;charset=UTF-8";
+            default -> MediaType.APPLICATION_OCTET_STREAM_VALUE;
+        };
+    }
+
+    private Charset detectCharset(byte[] bytes) {
+        CharsetDetector detector = new CharsetDetector();
+        detector.setText(bytes);
+        CharsetMatch match = detector.detect();
+        if (match == null || match.getName() == null || match.getName().isBlank()) {
+            return StandardCharsets.UTF_8;
+        }
+        try {
+            return Charset.forName(match.getName());
+        } catch (Exception ex) {
+            return StandardCharsets.UTF_8;
+        }
+    }
+
+    private String buildTextPreviewHtml(String fileName, String text, boolean markdownLike) {
+        String escapedTitle = escapeHtml(fileName == null ? "Preview" : fileName);
+        String body = markdownLike ? escapeHtml(text) : escapeHtml(text);
+        return """
+                <!DOCTYPE html>
+                <html lang="zh-CN">
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>%s</title>
+                    <style>
+                        body {
+                            margin: 0;
+                            padding: 24px;
+                            background: #f8fafc;
+                            color: #1e293b;
+                            font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+                        }
+                        .container {
+                            max-width: 960px;
+                            margin: 0 auto;
+                            background: #ffffff;
+                            border: 1px solid #e2e8f0;
+                            border-radius: 16px;
+                            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+                            overflow: hidden;
+                        }
+                        .header {
+                            padding: 16px 20px;
+                            border-bottom: 1px solid #e2e8f0;
+                            font-size: 18px;
+                            font-weight: 600;
+                        }
+                        pre {
+                            margin: 0;
+                            padding: 20px;
+                            white-space: pre-wrap;
+                            word-break: break-word;
+                            line-height: 1.7;
+                            font-family: "Consolas", "Courier New", monospace;
+                            font-size: 14px;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <div class="header">%s</div>
+                        <pre>%s</pre>
+                    </div>
+                </body>
+                </html>
+                """.formatted(escapedTitle, escapedTitle, body);
+    }
+
+    private String escapeHtml(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
     }
 }
