@@ -64,7 +64,7 @@ class UserServiceImplTest {
         verify(spaceMemberMapper).insert(argThat((SpaceMember member) ->
                 member.getSpaceId().equals(10L)
                         && member.getUserId().equals(88L)
-                        && "MEMBER".equals(member.getRole())));
+                        && "VIEW".equals(member.getRole())));
     }
 
     @Test

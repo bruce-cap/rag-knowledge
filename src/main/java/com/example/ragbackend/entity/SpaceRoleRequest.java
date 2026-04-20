@@ -8,8 +8,8 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("space_join_request")
-public class SpaceJoinRequest {
+@TableName("space_role_request")
+public class SpaceRoleRequest {
 
     @TableId(type = IdType.AUTO)
     private Long id;
@@ -18,7 +18,11 @@ public class SpaceJoinRequest {
 
     private Long userId;
 
+    private String currentRole;
+
     private String targetRole;
+
+    private String requestType;
 
     private String status;
 

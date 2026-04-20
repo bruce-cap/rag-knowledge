@@ -28,6 +28,8 @@ public class Document {
 
     private String fileType;
 
+    private String mimeType;
+
     private Integer status;
 
     private LocalDateTime createTime;
@@ -39,4 +41,8 @@ public class Document {
     private LocalDateTime deleteTime;
 
     private String errorMessage;
+
+    private Integer retryCount;
+
+    private LocalDateTime lastRetryTime;
 }

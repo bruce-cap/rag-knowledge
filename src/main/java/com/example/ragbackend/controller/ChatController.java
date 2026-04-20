@@ -4,11 +4,14 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.ragbackend.common.Result;
 import com.example.ragbackend.entity.ChatMessageEntity;
 import com.example.ragbackend.entity.ChatSessionEntity;
+import com.example.ragbackend.exception.BusinessException;
 import com.example.ragbackend.mapper.ChatMessageMapper;
 import com.example.ragbackend.mapper.ChatSessionMapper;
 import com.example.ragbackend.model.dto.ChatRequestDTO;
 import com.example.ragbackend.service.ChatService;
 import com.example.ragbackend.service.ChatServiceFactory;
+import com.example.ragbackend.service.ChatSessionService;
+import com.example.ragbackend.service.SpaceAccessService;
 import com.example.ragbackend.utils.SecurityUtils;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -22,10 +25,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.LocalDateTime;
@@ -48,129 +48,148 @@ public class ChatController {
     @Autowired
     private ChatMessageMapper messageMapper;
 
+    @Autowired
+    private ChatSessionService chatSessionService;
+
+    @Autowired
+    private SpaceAccessService spaceAccessService;
+
     @Value("${rag.memory.max-tokens:2000}")
     private Integer maxTokens;
 
     @Value("${rag.memory.keep-min-messages:2}")
     private Integer keepMinMessages;
 
-
-    //已弃用，现在改为使用stream流式输出
-
-    /**
-     * 注意：此方法已标记为弃用，建议使用流式接口 {@link #sendMessageStream(ChatRequestDTO)}
-     *      * 以获得更好的用户体验。
-     * @param dto
-     * @return Result
-     */
     @Deprecated
     @PostMapping("/send")
     public Result<String> sendMessage(@RequestBody ChatRequestDTO dto) {
-        log.info("Chat request received, sessionId={}, ragMode={}", dto.getSessionId(), dto.getRagMode());
-
-        if (dto.getSessionId() == null) {
-            return Result.error("Session ID cannot be empty");
-        }
-        ensureSessionOwnership(dto.getSessionId());
+        validateRequest(dto);
+        Long userId = SecurityUtils.getCurrentUserId();
+        ensureSessionOwnership(dto.getSessionId(), userId);
+        validateRagScope(userId, dto);
 
         saveUserMessage(dto.getSessionId(), dto.getMessage());
         touchSession(dto.getSessionId());
 
         ChatMemory memory = prepareMemory(dto.getSessionId());
-        Long userId = SecurityUtils.getCurrentUserId();
         boolean isAdmin = SecurityUtils.isAdmin();
-        ChatService chatService = chatServiceFactory.create(userId, isAdmin, dto.getRagMode(), memory);
+        ChatService chatService = chatServiceFactory.create(
+                userId,
+                isAdmin,
+                Boolean.TRUE.equals(dto.getRagMode()),
+                dto.getSpaceId(),
+                dto.getFolderId(),
+                memory
+        );
 
         try {
             String aiResponse = chatService.chat(dto.getMessage());
             saveAiMessage(dto.getSessionId(), aiResponse);
-            updateSessionTitleIfNew(dto.getSessionId(), dto.getMessage());
+            chatSessionService.generateTitleIfNeeded(dto.getSessionId(), dto.getMessage(), aiResponse);
             return Result.success(aiResponse);
         } catch (Exception e) {
-            log.error("Chat request failed, sessionId={}", dto.getSessionId(), e);
+            log.error("Chat request failed, sessionId={}, error={}", dto.getSessionId(), e.getMessage(), e);
             return Result.error("AI is busy: " + e.getMessage());
         }
     }
 
     @PostMapping(value = "/send/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter sendMessageStream(@RequestBody ChatRequestDTO dto) {
-        log.info("Streaming chat request received, sessionId={}, ragMode={}", dto.getSessionId(), dto.getRagMode());
+        try {
+            validateRequest(dto);
+            Long userId = SecurityUtils.getCurrentUserId();
+            ensureSessionOwnership(dto.getSessionId(), userId);
+            validateRagScope(userId, dto);
 
-        if (dto.getSessionId() == null) {
+            saveUserMessage(dto.getSessionId(), dto.getMessage());
+            touchSession(dto.getSessionId());
+
+            SseEmitter emitter = new SseEmitter(3600000L);
+            emitter.onCompletion(() -> log.info("SSE completed, sessionId={}", dto.getSessionId()));
+            emitter.onTimeout(() -> {
+                log.warn("SSE timeout, sessionId={}", dto.getSessionId());
+                emitter.complete();
+            });
+            emitter.onError(error -> log.error("SSE error, sessionId={}, error={}", dto.getSessionId(), error.getMessage(), error));
+
+            ChatMemory memory = prepareMemory(dto.getSessionId());
+            boolean isAdmin = SecurityUtils.isAdmin();
+            ChatService chatService = chatServiceFactory.create(
+                    userId,
+                    isAdmin,
+                    Boolean.TRUE.equals(dto.getRagMode()),
+                    dto.getSpaceId(),
+                    dto.getFolderId(),
+                    memory
+            );
+
+            StringBuilder responseBuffer = new StringBuilder();
+            TokenStream tokenStream = chatService.chatStream(dto.getMessage());
+            tokenStream.onNext(token -> {
+                responseBuffer.append(token);
+                try {
+                    emitter.send(SseEmitter.event().data(Collections.singletonMap("text", token)));
+                } catch (Exception e) {
+                    log.error("Failed to send SSE token, sessionId={}", dto.getSessionId(), e);
+                }
+            }).onComplete(response -> {
+                try {
+                    String finalResponse = response != null && response.content() != null
+                            ? response.content().text()
+                            : responseBuffer.toString();
+                    if (finalResponse != null && !finalResponse.isBlank()) {
+                        saveAiMessage(dto.getSessionId(), finalResponse);
+                        chatSessionService.generateTitleIfNeeded(dto.getSessionId(), dto.getMessage(), finalResponse);
+                    }
+                    emitter.send(SseEmitter.event().name("finish").data("[DONE]"));
+                    emitter.complete();
+                } catch (Exception e) {
+                    log.error("Failed to complete SSE stream, sessionId={}", dto.getSessionId(), e);
+                    emitter.complete();
+                }
+            }).onError(error -> {
+                log.error("Streaming chat failed, sessionId={}, error={}", dto.getSessionId(), error.getMessage(), error);
+                try {
+                    emitter.send(SseEmitter.event().name("error").data(error.getMessage()));
+                    emitter.completeWithError(error);
+                } catch (Exception ignored) {
+                    emitter.complete();
+                }
+            }).start();
+
+            return emitter;
+        } catch (Exception ex) {
             SseEmitter emitter = new SseEmitter();
             try {
-                emitter.send(SseEmitter.event().name("error").data("Session ID cannot be empty"));
-                emitter.complete();
+                emitter.send(SseEmitter.event().name("error").data(ex.getMessage()));
             } catch (Exception ignored) {
             }
+            emitter.complete();
             return emitter;
         }
-        ensureSessionOwnership(dto.getSessionId());
-
-        //保存用户消息
-        saveUserMessage(dto.getSessionId(), dto.getMessage());
-        //更新会话
-        touchSession(dto.getSessionId());
-
-        SseEmitter emitter = new SseEmitter(3600000L);
-        emitter.onCompletion(() -> log.info("SSE connection completed for sessionId={}", dto.getSessionId()));
-        emitter.onTimeout(() -> {
-            log.warn("SSE connection timeout for sessionId={}", dto.getSessionId());
-            emitter.complete();
-        });
-        emitter.onError(error -> log.error("SSE connection error for sessionId={}", dto.getSessionId(), error));
-
-        ChatMemory memory = prepareMemory(dto.getSessionId());
-        Long userId = SecurityUtils.getCurrentUserId();
-        boolean isAdmin = SecurityUtils.isAdmin();
-        ChatService chatService = chatServiceFactory.create(userId, isAdmin, dto.getRagMode(), memory);
-
-        TokenStream tokenStream = chatService.chatStream(dto.getMessage());
-        tokenStream.onNext(token -> {
-            try {
-                emitter.send(SseEmitter.event().data(Collections.singletonMap("text", token)));
-            } catch (Exception e) {
-                log.error("Failed to send SSE token for sessionId={}", dto.getSessionId(), e);
-            }
-        }).onComplete(response -> {
-            try {
-                emitter.send(SseEmitter.event().name("finish").data("[DONE]"));
-                emitter.complete();
-
-                if (response != null && response.content() != null) {
-                    saveAiMessage(dto.getSessionId(), response.content().text());
-                }
-                updateSessionTitleIfNew(dto.getSessionId(), dto.getMessage());
-            } catch (Exception e) {
-                log.error("Failed to complete SSE stream for sessionId={}", dto.getSessionId(), e);
-                try {
-                    emitter.complete();
-                } catch (Exception ignored) {
-                }
-            }
-        }).onError(error -> {
-            log.error("Streaming chat failed for sessionId={}", dto.getSessionId(), error);
-            try {
-                emitter.send(SseEmitter.event().name("error").data(error.getMessage()));
-                emitter.completeWithError(error);
-            } catch (Exception ignored) {
-                try {
-                    emitter.complete();
-                } catch (Exception ignoredAgain) {
-                }
-            }
-        }).start();
-
-        return emitter;
     }
 
+    private void validateRequest(ChatRequestDTO dto) {
+        if (dto == null || dto.getSessionId() == null) {
+            throw new BusinessException(400, "Session ID cannot be empty");
+        }
+        if (dto.getMessage() == null || dto.getMessage().trim().isEmpty()) {
+            throw new BusinessException(400, "Message cannot be empty");
+        }
+        if (dto.getFolderId() != null && dto.getSpaceId() == null) {
+            throw new BusinessException(400, "spaceId is required when folderId is specified");
+        }
+    }
 
-    /**
-     * 创建会话内存
-     * 上下文管理
-     * @param sessionId
-     * @return
-     */
+    private void validateRagScope(Long userId, ChatRequestDTO dto) {
+        if (!Boolean.TRUE.equals(dto.getRagMode()) || dto.getSpaceId() == null || SecurityUtils.isAdmin()) {
+            return;
+        }
+        if (!spaceAccessService.canAccessSpace(userId, dto.getSpaceId())) {
+            throw new BusinessException(403, "You do not have permission to search this space");
+        }
+    }
+
     private ChatMemory prepareMemory(Long sessionId) {
         ChatMemory memory = TokenWindowChatMemory.builder()
                 .maxTokens(maxTokens, new OpenAiTokenizer(GPT_3_5_TURBO))
@@ -198,7 +217,7 @@ public class ChatController {
 
         List<ChatMessage> currentMessages = memory.messages();
         if (currentMessages.size() < keepMinMessages && dbMessages.size() >= keepMinMessages) {
-            log.warn("Token window kept too few messages, falling back to message window. sessionId={}", sessionId);
+            log.warn("Token window kept too few messages, fallback to message window, sessionId={}", sessionId);
             memory = MessageWindowChatMemory.withMaxMessages(keepMinMessages);
             for (int i = dbMessages.size() - keepMinMessages; i < dbMessages.size(); i++) {
                 ChatMessageEntity dbMsg = dbMessages.get(i);
@@ -231,10 +250,6 @@ public class ChatController {
         messageMapper.insert(entity);
     }
 
-    /**
-     * 更新会话
-     * @param sessionId
-     */
     private void touchSession(Long sessionId) {
         ChatSessionEntity session = sessionMapper.selectById(sessionId);
         if (session != null) {
@@ -243,21 +258,10 @@ public class ChatController {
         }
     }
 
-    private void updateSessionTitleIfNew(Long sessionId, String firstContent) {
-        ChatSessionEntity session = sessionMapper.selectById(sessionId);
-        if (session != null && "新的会话".equals(session.getTitle())) {
-            String newTitle = firstContent.length() > 15 ? firstContent.substring(0, 15) + "..." : firstContent;
-            session.setTitle(newTitle);
-            sessionMapper.updateById(session);
-        }
-    }
-
-    private void ensureSessionOwnership(Long sessionId) {
-        Long userId = SecurityUtils.getCurrentUserId();
+    private void ensureSessionOwnership(Long sessionId, Long userId) {
         ChatSessionEntity session = sessionMapper.selectById(sessionId);
         if (session == null || !userId.equals(session.getUserId())) {
-            throw new IllegalArgumentException("Session does not belong to the current user");
+            throw new BusinessException(404, "Chat session does not belong to the current user");
         }
     }
 }
-

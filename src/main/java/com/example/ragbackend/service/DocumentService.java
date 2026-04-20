@@ -12,4 +12,8 @@ public interface DocumentService extends IService<Document> {
     Result<?> listDocuments(Long userId, Long spaceId, Long folderId);
 
     Result<?> deleteDocument(Long id, Long userId);
+
+    Result<?> retryDocument(Long id, Long userId);
+
+    Document getAccessibleDocument(Long id, Long userId);
 }

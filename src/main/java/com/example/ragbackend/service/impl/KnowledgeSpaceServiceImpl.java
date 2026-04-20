@@ -168,6 +168,8 @@ public class KnowledgeSpaceServiceImpl extends ServiceImpl<KnowledgeSpaceMapper,
         if (dto.getUserId() == null) {
             throw new BusinessException(400, "User ID cannot be null");
         }
+        String targetRole = normalizeRole(dto.getRole(), SpaceJoinRequestConstants.VIEW_ROLE);
+        ensureOperatorCanAssignRole(spaceId, operatorId, isSuperAdmin, targetRole);
 
         User user = getRequiredUser(dto.getUserId());
         if (!"USER".equalsIgnoreCase(user.getRole())) {
@@ -185,7 +187,7 @@ public class KnowledgeSpaceServiceImpl extends ServiceImpl<KnowledgeSpaceMapper,
         SpaceMember member = new SpaceMember();
         member.setSpaceId(spaceId);
         member.setUserId(dto.getUserId());
-        member.setRole(SpaceJoinRequestConstants.MEMBER_ROLE);
+        member.setRole(targetRole);
         member.setJoinTime(LocalDateTime.now());
         spaceMemberMapper.insert(member);
         return member;
@@ -220,21 +222,12 @@ public class KnowledgeSpaceServiceImpl extends ServiceImpl<KnowledgeSpaceMapper,
 
     @Override
     public SpaceMember updateMemberRole(Long spaceId, Long memberUserId, Long operatorId, boolean isSuperAdmin, String role) {
-        ensureSuperAdmin(isSuperAdmin);
         if (memberUserId == null) {
             throw new BusinessException(400, "User ID cannot be null");
         }
-        if (role == null || role.trim().isEmpty()) {
-            throw new BusinessException(400, "Role cannot be empty");
-        }
-
-        String normalizedRole = role.trim().toUpperCase();
-        if (!SpaceJoinRequestConstants.ADMIN_ROLE.equals(normalizedRole)
-                && !SpaceJoinRequestConstants.MEMBER_ROLE.equals(normalizedRole)) {
-            throw new BusinessException(400, "Role must be ADMIN or MEMBER");
-        }
-
+        String normalizedRole = normalizeRole(role, null);
         SpaceMember member = getRequiredMember(spaceId, memberUserId);
+        ensureRoleAdjustmentPermission(spaceId, operatorId, isSuperAdmin, member, normalizedRole);
         member.setRole(normalizedRole);
         spaceMemberMapper.updateById(member);
         return member;
@@ -315,13 +308,71 @@ public class KnowledgeSpaceServiceImpl extends ServiceImpl<KnowledgeSpaceMapper,
         if (isSuperAdmin) {
             return;
         }
-        SpaceMember membership = spaceMemberMapper.selectOne(new LambdaQueryWrapper<SpaceMember>()
-                .eq(SpaceMember::getSpaceId, spaceId)
-                .eq(SpaceMember::getUserId, userId)
-                .eq(SpaceMember::getRole, SpaceJoinRequestConstants.ADMIN_ROLE)
-                .last("LIMIT 1"));
+        SpaceMember membership = getMembership(spaceId, userId);
         if (membership == null) {
             throw new BusinessException(403, "Only super admins or space admins can invite users");
+        }
+        if (!SpaceJoinRequestConstants.ADMIN_ROLE.equalsIgnoreCase(membership.getRole())) {
+            throw new BusinessException(403, "Only super admins or space admins can invite users");
+        }
+    }
+
+    private SpaceMember getMembership(Long spaceId, Long userId) {
+        return spaceMemberMapper.selectOne(new LambdaQueryWrapper<SpaceMember>()
+                .eq(SpaceMember::getSpaceId, spaceId)
+                .eq(SpaceMember::getUserId, userId)
+                .last("LIMIT 1"));
+    }
+
+    private String normalizeRole(String role, String defaultRole) {
+        if (role == null || role.trim().isEmpty()) {
+            if (defaultRole == null) {
+                throw new BusinessException(400, "Role cannot be empty");
+            }
+            return defaultRole;
+        }
+        String normalizedRole = role.trim().toUpperCase();
+        if (!SpaceJoinRequestConstants.ADMIN_ROLE.equals(normalizedRole)
+                && !SpaceJoinRequestConstants.MEMBER_ROLE.equals(normalizedRole)
+                && !SpaceJoinRequestConstants.VIEW_ROLE.equals(normalizedRole)) {
+            throw new BusinessException(400, "Role must be ADMIN, MEMBER or VIEW");
+        }
+        return normalizedRole;
+    }
+
+    private void ensureOperatorCanAssignRole(Long spaceId, Long operatorId, boolean isSuperAdmin, String targetRole) {
+        if (isSuperAdmin) {
+            return;
+        }
+        SpaceMember operatorMembership = getMembership(spaceId, operatorId);
+        if (operatorMembership == null || !SpaceJoinRequestConstants.ADMIN_ROLE.equalsIgnoreCase(operatorMembership.getRole())) {
+            throw new BusinessException(403, "Only super admins or space admins can assign roles");
+        }
+        if (SpaceJoinRequestConstants.ADMIN_ROLE.equalsIgnoreCase(targetRole)) {
+            throw new BusinessException(403, "Space admins cannot assign ADMIN role directly");
+        }
+    }
+
+    private void ensureRoleAdjustmentPermission(Long spaceId, Long operatorId, boolean isSuperAdmin, SpaceMember targetMember, String targetRole) {
+        getRequiredSpace(spaceId);
+        if (isSuperAdmin) {
+            return;
+        }
+        SpaceMember operatorMembership = getMembership(spaceId, operatorId);
+        if (operatorMembership == null) {
+            throw new BusinessException(403, "You do not belong to this space");
+        }
+        if (!SpaceJoinRequestConstants.ADMIN_ROLE.equalsIgnoreCase(operatorMembership.getRole())) {
+            throw new BusinessException(403, "Only super admins or space admins can adjust member roles");
+        }
+        if (targetMember.getUserId().equals(operatorId)) {
+            throw new BusinessException(400, "Space admin cannot adjust their own role");
+        }
+        if (SpaceJoinRequestConstants.ADMIN_ROLE.equalsIgnoreCase(targetMember.getRole())) {
+            throw new BusinessException(403, "Space admin cannot adjust another space admin");
+        }
+        if (SpaceJoinRequestConstants.ADMIN_ROLE.equalsIgnoreCase(targetRole)) {
+            throw new BusinessException(403, "Space admin cannot promote a member to ADMIN");
         }
     }
 }

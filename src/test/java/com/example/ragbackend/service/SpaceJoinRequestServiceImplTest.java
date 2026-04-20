@@ -58,7 +58,8 @@ class SpaceJoinRequestServiceImplTest {
     void createRequestShouldPersistPendingRequest() {
         SpaceJoinRequestCreateDTO dto = new SpaceJoinRequestCreateDTO();
         dto.setSpaceId(10L);
-        dto.setApplyReason("需要访问研发文档");
+        dto.setTargetRole(SpaceJoinRequestConstants.ADMIN_ROLE);
+        dto.setApplyReason("Need access to this space");
 
         KnowledgeSpace space = new KnowledgeSpace();
         space.setId(10L);
@@ -78,14 +79,16 @@ class SpaceJoinRequestServiceImplTest {
         assertEquals(SpaceJoinRequestConstants.STATUS_PENDING, request.getStatus());
         assertEquals(10L, request.getSpaceId());
         assertEquals(2L, request.getUserId());
+        assertEquals(SpaceJoinRequestConstants.ADMIN_ROLE, request.getTargetRole());
     }
 
     @Test
-    void approveRequestShouldAddMember() {
+    void approveRequestShouldAddMemberWithRequestedRole() {
         SpaceJoinRequest request = new SpaceJoinRequest();
         request.setId(1L);
         request.setSpaceId(10L);
         request.setUserId(2L);
+        request.setTargetRole(SpaceJoinRequestConstants.MEMBER_ROLE);
         request.setStatus(SpaceJoinRequestConstants.STATUS_PENDING);
 
         doReturn(request).when(spaceJoinRequestService).getById(1L);
@@ -93,7 +96,7 @@ class SpaceJoinRequestServiceImplTest {
         doReturn(true).when(spaceJoinRequestService).updateById(any(SpaceJoinRequest.class));
 
         SpaceJoinRequestReviewDTO dto = new SpaceJoinRequestReviewDTO();
-        dto.setReviewReason("通过");
+        dto.setReviewReason("approved");
 
         SpaceJoinRequest approved = spaceJoinRequestService.approveRequest(1L, 99L, true, dto);
 
@@ -102,5 +105,28 @@ class SpaceJoinRequestServiceImplTest {
                 member.getSpaceId().equals(10L)
                         && member.getUserId().equals(2L)
                         && SpaceJoinRequestConstants.MEMBER_ROLE.equals(member.getRole())));
+    }
+
+    @Test
+    void approveRequestShouldRejectSpaceAdminGrantingAdminRole() {
+        SpaceJoinRequest request = new SpaceJoinRequest();
+        request.setId(1L);
+        request.setSpaceId(10L);
+        request.setUserId(2L);
+        request.setTargetRole(SpaceJoinRequestConstants.ADMIN_ROLE);
+        request.setStatus(SpaceJoinRequestConstants.STATUS_PENDING);
+
+        SpaceMember reviewerMembership = new SpaceMember();
+        reviewerMembership.setSpaceId(10L);
+        reviewerMembership.setUserId(5L);
+        reviewerMembership.setRole(SpaceJoinRequestConstants.ADMIN_ROLE);
+
+        doReturn(request).when(spaceJoinRequestService).getById(1L);
+        when(spaceMemberMapper.selectOne(any())).thenReturn(reviewerMembership, null, reviewerMembership);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> spaceJoinRequestService.approveRequest(1L, 5L, false, new SpaceJoinRequestReviewDTO()));
+
+        assertEquals(403, exception.getCode());
     }
 }

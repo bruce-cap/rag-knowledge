@@ -15,6 +15,7 @@ import com.example.ragbackend.mapper.UserMapper;
 import com.example.ragbackend.model.dto.SpaceJoinRequestCreateDTO;
 import com.example.ragbackend.model.dto.SpaceJoinRequestReviewDTO;
 import com.example.ragbackend.service.SpaceJoinRequestService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -23,6 +24,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 @Service
+@Slf4j
 public class SpaceJoinRequestServiceImpl extends ServiceImpl<SpaceJoinRequestMapper, SpaceJoinRequest> implements SpaceJoinRequestService {
 
     @Autowired
@@ -47,6 +49,7 @@ public class SpaceJoinRequestServiceImpl extends ServiceImpl<SpaceJoinRequestMap
         if (Boolean.TRUE.equals(space.getIsSystem())) {
             throw new BusinessException(400, "System spaces do not support join requests");
         }
+        String targetRole = normalizeTargetRole(dto.getTargetRole());
 
         ensureOrdinaryUser(userId);
         ensureNotMember(dto.getSpaceId(), userId);
@@ -55,6 +58,7 @@ public class SpaceJoinRequestServiceImpl extends ServiceImpl<SpaceJoinRequestMap
         SpaceJoinRequest request = new SpaceJoinRequest();
         request.setSpaceId(dto.getSpaceId());
         request.setUserId(userId);
+        request.setTargetRole(targetRole);
         request.setStatus(SpaceJoinRequestConstants.STATUS_PENDING);
         request.setApplyReason(dto.getApplyReason());
         request.setReviewReason(null);
@@ -63,6 +67,8 @@ public class SpaceJoinRequestServiceImpl extends ServiceImpl<SpaceJoinRequestMap
         request.setCreateTime(LocalDateTime.now());
         request.setUpdateTime(LocalDateTime.now());
         this.save(request);
+        log.info("Space join request created, requestId={}, userId={}, spaceId={}, targetRole={}",
+                request.getId(), userId, dto.getSpaceId(), targetRole);
         return request;
     }
 
@@ -105,11 +111,12 @@ public class SpaceJoinRequestServiceImpl extends ServiceImpl<SpaceJoinRequestMap
         ensureReviewPermission(request.getSpaceId(), userId, isSuperAdmin);
         ensurePendingRequest(request);
         ensureNotMember(request.getSpaceId(), request.getUserId());
+        ensureReviewerCanGrantRole(request.getTargetRole(), request.getSpaceId(), userId, isSuperAdmin);
 
         SpaceMember member = new SpaceMember();
         member.setSpaceId(request.getSpaceId());
         member.setUserId(request.getUserId());
-        member.setRole(SpaceJoinRequestConstants.MEMBER_ROLE);
+        member.setRole(request.getTargetRole());
         member.setJoinTime(LocalDateTime.now());
         spaceMemberMapper.insert(member);
 
@@ -119,6 +126,8 @@ public class SpaceJoinRequestServiceImpl extends ServiceImpl<SpaceJoinRequestMap
         request.setReviewTime(LocalDateTime.now());
         request.setUpdateTime(LocalDateTime.now());
         this.updateById(request);
+        log.info("Space join request approved, requestId={}, reviewerId={}, targetUserId={}, spaceId={}, targetRole={}",
+                requestId, userId, request.getUserId(), request.getSpaceId(), request.getTargetRole());
         return request;
     }
 
@@ -134,6 +143,8 @@ public class SpaceJoinRequestServiceImpl extends ServiceImpl<SpaceJoinRequestMap
         request.setReviewTime(LocalDateTime.now());
         request.setUpdateTime(LocalDateTime.now());
         this.updateById(request);
+        log.info("Space join request rejected, requestId={}, reviewerId={}, targetUserId={}, spaceId={}",
+                requestId, userId, request.getUserId(), request.getSpaceId());
         return request;
     }
 
@@ -194,12 +205,11 @@ public class SpaceJoinRequestServiceImpl extends ServiceImpl<SpaceJoinRequestMap
         if (isSuperAdmin) {
             return;
         }
-        SpaceMember membership = spaceMemberMapper.selectOne(new LambdaQueryWrapper<SpaceMember>()
-                .eq(SpaceMember::getSpaceId, spaceId)
-                .eq(SpaceMember::getUserId, userId)
-                .eq(SpaceMember::getRole, SpaceJoinRequestConstants.ADMIN_ROLE)
-                .last("LIMIT 1"));
+        SpaceMember membership = getMembership(spaceId, userId);
         if (membership == null) {
+            throw new BusinessException(403, "Only super admins or space admins can review join requests");
+        }
+        if (!SpaceJoinRequestConstants.ADMIN_ROLE.equalsIgnoreCase(membership.getRole())) {
             throw new BusinessException(403, "Only super admins or space admins can review join requests");
         }
     }
@@ -212,5 +222,38 @@ public class SpaceJoinRequestServiceImpl extends ServiceImpl<SpaceJoinRequestMap
                 .map(SpaceMember::getSpaceId)
                 .distinct()
                 .collect(Collectors.toList());
+    }
+
+    private SpaceMember getMembership(Long spaceId, Long userId) {
+        return spaceMemberMapper.selectOne(new LambdaQueryWrapper<SpaceMember>()
+                .eq(SpaceMember::getSpaceId, spaceId)
+                .eq(SpaceMember::getUserId, userId)
+                .last("LIMIT 1"));
+    }
+
+    private String normalizeTargetRole(String role) {
+        if (role == null || role.trim().isEmpty()) {
+            return SpaceJoinRequestConstants.VIEW_ROLE;
+        }
+        String normalized = role.trim().toUpperCase();
+        if (!SpaceJoinRequestConstants.VIEW_ROLE.equals(normalized)
+                && !SpaceJoinRequestConstants.MEMBER_ROLE.equals(normalized)
+                && !SpaceJoinRequestConstants.ADMIN_ROLE.equals(normalized)) {
+            throw new BusinessException(400, "The target role must be VIEW, MEMBER or ADMIN");
+        }
+        return normalized;
+    }
+
+    private void ensureReviewerCanGrantRole(String targetRole, Long spaceId, Long userId, boolean isSuperAdmin) {
+        if (isSuperAdmin) {
+            return;
+        }
+        SpaceMember reviewerMembership = getMembership(spaceId, userId);
+        if (reviewerMembership == null || !SpaceJoinRequestConstants.ADMIN_ROLE.equalsIgnoreCase(reviewerMembership.getRole())) {
+            throw new BusinessException(403, "Only super admins or space admins can review join requests");
+        }
+        if (SpaceJoinRequestConstants.ADMIN_ROLE.equalsIgnoreCase(targetRole)) {
+            throw new BusinessException(403, "Space admins cannot approve join requests for ADMIN role");
+        }
     }
 }

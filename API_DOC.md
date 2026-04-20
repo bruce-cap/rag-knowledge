@@ -1,13 +1,12 @@
-# RAG Backend API 文档
+# RAG Backend API DOC
 
-## 1. 基本信息
+## 1. Basic
 
 - Base URL: `http://localhost:8080`
-- 认证方式: JWT
-- Token 传递方式:
+- Auth:
   - `Authorization: Bearer <token>`
-  - 或登录后由后端写入 `jwt_token` Cookie
-- 返回结构:
+  - or `jwt_token` cookie
+- Unified response:
 
 ```json
 {
@@ -17,49 +16,9 @@
 }
 ```
 
-常见状态码语义:
+## 2. Auth
 
-- `200`: 成功
-- `400`: 请求参数错误
-- `401`: 未授权或 Token 已失效
-- `403`: 无权限
-- `404`: 资源不存在
-- `500`: 服务器内部错误
-
-## 2. 数据模型说明
-
-### 2.1 用户
-
-- 系统角色:
-  - `ADMIN`
-  - `USER`
-
-### 2.2 知识空间
-
-- 文档必须属于某个知识空间
-- 公共可见能力通过系统公共空间实现
-- 普通用户可访问自己加入的空间
-- 管理员可访问全部空间
-
-### 2.3 文件夹
-
-- 文件夹属于某个知识空间
-- 文件夹用于空间内分类，不单独承担权限职责
-
-### 2.4 文档状态
-
-- `0`: 待处理
-- `1`: 处理中
-- `2`: 处理完成
-- `3`: 处理失败
-
-## 3. 认证模块
-
-### 3.1 注册
-
-`POST /api/auth/register`
-
-请求体:
+### `POST /api/auth/register`
 
 ```json
 {
@@ -70,27 +29,13 @@
 }
 ```
 
-说明:
+Rules:
 
-- 用户名、密码、确认密码、邮箱必填
-- 密码规则: 8-16 位，必须同时包含字母和数字
-- 注册成功后会自动加入系统公共知识空间
+- passwords must match
+- password must be 8-16 chars and contain letters and digits
+- successful registration auto-joins public space with `VIEW` role
 
-成功响应:
-
-```json
-{
-  "code": 200,
-  "message": "操作成功",
-  "data": "注册成功"
-}
-```
-
-### 3.2 登录
-
-`POST /api/auth/login`
-
-请求体:
+### `POST /api/auth/login`
 
 ```json
 {
@@ -99,347 +44,168 @@
 }
 ```
 
-成功响应:
+Response data example:
 
 ```json
 {
-  "code": 200,
-  "message": "操作成功",
-  "data": {
-    "token": "jwt-token",
-    "username": "alice",
-    "userId": 1,
-    "role": "USER"
-  }
+  "token": "jwt-token",
+  "username": "alice",
+  "userId": 1,
+  "role": "USER",
+  "status": 1,
+  "nickname": "alice"
 }
 ```
 
-### 3.3 登出
+### `POST /api/auth/logout`
 
-`POST /api/auth/logout`
+Clears auth cookie.
 
-成功响应:
+## 3. Session
+
+### `POST /api/session/create`
+
+Create a new chat session.
+
+### `GET /api/session/list`
+
+List current user's sessions.
+
+Sort order:
+
+- `isPinned desc`
+- `pinTime desc`
+- `updateTime desc`
+
+### `DELETE /api/session/delete/{id}`
+
+Delete current user's session.
+
+### `PUT /api/session/updateTitle/{id}`
 
 ```json
 {
-  "code": 200,
-  "message": "操作成功",
-  "data": "成功退出登录"
+  "title": "新的会话标题"
 }
 ```
 
-## 4. 会话模块
+### `PUT /api/session/pin/{id}`
 
-### 4.1 创建会话
+Pin a session.
 
-`POST /api/session/create`
+### `PUT /api/session/unpin/{id}`
 
-成功响应:
+Unpin a session.
+
+### `GET /api/session/exportMd/{id}`
+
+Export session content as Markdown file.
+
+## 4. Chat
+
+### `POST /api/chat/send`
+
+Deprecated non-streaming chat.
+
+### `POST /api/chat/send/stream`
+
+Streaming chat with SSE.
+
+Request body for both:
 
 ```json
 {
-  "code": 200,
-  "message": "操作成功",
-  "data": 123
+  "sessionId": 1,
+  "message": "帮我总结这个空间里的文档",
+  "ragMode": true,
+  "spaceId": 10,
+  "folderId": 100
 }
 ```
 
-说明:
+Rules:
 
-- `data` 为新建会话 ID
+- `folderId` requires `spaceId`
+- request session must belong to current user
+- if `ragMode=true` and `spaceId` is set, ordinary user must have access to that space
+- if both `spaceId` and `folderId` are null, search all accessible spaces
 
-### 4.2 获取我的会话列表
+SSE events:
 
-`GET /api/session/list`
+- `data: {"text":"..."}`
+- `event: finish`
+- `event: error`
 
-成功响应:
+## 5. Message
+
+### `GET /api/message/list/{sessionId}`
+
+List messages in a session.
+
+### `PUT /api/message/edit/{id}`
 
 ```json
 {
-  "code": 200,
-  "message": "操作成功",
-  "data": [
-    {
-      "id": 123,
-      "userId": 1,
-      "title": "新对话",
-      "createTime": "2026-04-19T10:00:00",
-      "updateTime": "2026-04-19T10:05:00",
-      "isDeleted": 0
-    }
-  ]
+  "content": "修改后的内容"
 }
 ```
 
-### 4.3 删除会话
+### `DELETE /api/message/delete/{id}`
 
-`DELETE /api/session/delete/{id}`
+Deprecated.
 
-成功响应:
+## 6. Document
 
-```json
-{
-  "code": 200,
-  "message": "操作成功",
-  "data": "删除成功"
-}
-```
+### `POST /api/document/upload`
 
-失败响应示例:
+`multipart/form-data`
 
-```json
-{
-  "code": 500,
-  "message": "删除失败或无权限",
-  "data": null
-}
-```
+Fields:
 
-## 5. 聊天模块
+- `file` required
+- `spaceId` required
+- `folderId` optional
 
-### 5.1 普通聊天
+Rules:
 
-`POST /api/chat/send`
+- only `ADMIN` / `MEMBER` / super admin can upload
+- `VIEW` cannot upload
+- async processing starts after upload
 
-说明:
+### `GET /api/document/list`
 
-- 该接口已标记为 `Deprecated`
-- 建议使用流式接口 `/api/chat/send/stream`
+Query params:
 
-请求体:
+- `spaceId` optional
+- `folderId` optional
 
-```json
-{
-  "sessionId": 123,
-  "message": "什么是RAG？",
-  "ragMode": true
-}
-```
+### `DELETE /api/document/delete/{id}`
 
-成功响应:
+Allowed:
 
-```json
-{
-  "code": 200,
-  "message": "操作成功",
-  "data": "RAG 是检索增强生成..."
-}
-```
+- uploader
+- space admin
+- super admin
 
-### 5.2 流式聊天
+### `POST /api/document/retry/{id}`
 
-`POST /api/chat/send/stream`
+Retry failed document processing.
 
-`Content-Type: application/json`
+Rules:
 
-`Accept: text/event-stream`
+- only failed documents can be retried
+- old vectors are cleared before retry
+- allowed for uploader / space admin / super admin
 
-请求体:
+### `GET /api/document/download/{id}`
 
-```json
-{
-  "sessionId": 123,
-  "message": "帮我总结这个知识库",
-  "ragMode": true
-}
-```
+Download original file.
 
-事件说明:
+### `GET /api/document/preview/{id}`
 
-- 普通 token 事件: `data: {"text":"..." }`
-- 完成事件: `event: finish`, `data: [DONE]`
-- 错误事件: `event: error`
+Inline preview original file.
 
-说明:
-
-- 会话必须属于当前用户
-- `ragMode=true` 时启用基于知识空间权限的向量检索
-
-## 6. 消息模块
-
-### 6.1 获取会话消息列表
-
-`GET /api/message/list/{sessionId}`
-
-成功响应:
-
-```json
-{
-  "code": 200,
-  "message": "操作成功",
-  "data": [
-    {
-      "id": 1,
-      "sessionId": 123,
-      "role": "user",
-      "content": "你好",
-      "createTime": "2026-04-19T10:00:00"
-    },
-    {
-      "id": 2,
-      "sessionId": 123,
-      "role": "assistant",
-      "content": "你好，我是知识库助手",
-      "createTime": "2026-04-19T10:00:02"
-    }
-  ]
-}
-```
-
-### 6.2 编辑消息
-
-`PUT /api/message/edit/{id}`
-
-请求体:
-
-```json
-{
-  "content": "修改后的消息内容"
-}
-```
-
-成功响应:
-
-```json
-{
-  "code": 200,
-  "message": "操作成功",
-  "data": "Message updated successfully"
-}
-```
-
-### 6.3 删除消息
-
-`DELETE /api/message/delete/{id}`
-
-说明:
-
-- 该接口已标记为 `Deprecated`
-
-成功响应:
-
-```json
-{
-  "code": 200,
-  "message": "操作成功",
-  "data": "Message deleted successfully"
-}
-```
-
-## 7. 文档模块
-
-### 7.1 上传文档
-
-`POST /api/document/upload`
-
-`Content-Type: multipart/form-data`
-
-表单参数:
-
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| file | File | 是 | 上传文件 |
-| spaceId | Long | 是 | 所属知识空间 ID |
-| folderId | Long | 否 | 所属文件夹 ID |
-
-成功响应:
-
-```json
-{
-  "code": 200,
-  "message": "操作成功",
-  "data": {
-    "id": 1,
-    "spaceId": 10,
-    "folderId": 100,
-    "userId": 1,
-    "fileName": "manual.pdf",
-    "minioPath": "documents/1/uuid.pdf",
-    "fileSize": 102400,
-    "fileType": "pdf",
-    "status": 0,
-    "createTime": "2026-04-19T10:00:00",
-    "updateTime": "2026-04-19T10:00:00",
-    "isDeleted": false,
-    "deleteTime": null,
-    "errorMessage": null
-  }
-}
-```
-
-说明:
-
-- 文档必须归属到某个知识空间
-- 非空间成员不能上传到该空间
-- 上传成功后异步进行解析、切片和向量化
-
-### 7.2 获取文档列表
-
-`GET /api/document/list`
-
-查询参数:
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| spaceId | Long | 否 | 按知识空间过滤 |
-| folderId | Long | 否 | 按文件夹过滤 |
-
-成功响应:
-
-```json
-{
-  "code": 200,
-  "message": "操作成功",
-  "data": [
-    {
-      "id": 1,
-      "spaceId": 10,
-      "folderId": 100,
-      "userId": 1,
-      "fileName": "manual.pdf",
-      "minioPath": "documents/1/uuid.pdf",
-      "fileSize": 102400,
-      "fileType": "pdf",
-      "status": 2,
-      "createTime": "2026-04-19T10:00:00",
-      "updateTime": "2026-04-19T10:05:00",
-      "isDeleted": false,
-      "deleteTime": null,
-      "errorMessage": null
-    }
-  ]
-}
-```
-
-说明:
-
-- 普通用户只能看到自己可访问空间中的文档
-- 管理员可查看全部文档
-
-### 7.3 删除文档
-
-`DELETE /api/document/delete/{id}`
-
-成功响应:
-
-```json
-{
-  "code": 200,
-  "message": "操作成功",
-  "data": "Document deleted successfully"
-}
-```
-
-说明:
-
-- 仅文档上传者或管理员可删除
-- 删除时会尝试同时清理 MinIO 对象和向量数据
-
-### 7.4 向量检索
-
-`POST /api/document/search`
-
-请求体:
+### `POST /api/document/search`
 
 ```json
 {
@@ -451,166 +217,65 @@
 }
 ```
 
-字段说明:
+Rules:
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| query | String | 是 | 检索文本 |
-| limit | Integer | 否 | 返回条数，默认 5 |
-| minScore | Double | 否 | 最低相似度，默认 0.5 |
-| spaceId | Long | 否 | 指定知识空间 |
-| folderId | Long | 否 | 指定文件夹 |
+- `folderId` requires `spaceId`
+- ordinary user cannot search an unauthorized space
+- when no `spaceId` and `folderId` are given, search all accessible spaces
 
-成功响应:
+Response item example:
 
 ```json
 {
-  "code": 200,
-  "message": "操作成功",
-  "data": [
-    {
-      "text": "RAG 是检索增强生成技术",
-      "score": 0.89,
-      "documentId": "1",
-      "spaceId": "10",
-      "folderId": "100"
-    }
-  ]
+  "text": "匹配到的内容片段",
+  "score": 0.89,
+  "documentId": "1",
+  "spaceId": "10",
+  "folderId": "100"
 }
 ```
 
-说明:
+## 7. Space
 
-- 普通用户只能检索自己有权限访问的空间
-- 管理员可检索任意空间
+### `GET /api/space/list`
 
-## 8. 知识空间模块
+List accessible spaces for current user.
 
-### 8.1 获取可访问知识空间列表
+### `GET /api/space/listAll`
 
-`GET /api/space/list`
+List joinable business spaces.
 
-成功响应:
+Rules:
 
-```json
-{
-  "code": 200,
-  "message": "操作成功",
-  "data": [
-    {
-      "id": 10,
-      "name": "公共知识库",
-      "code": "PUBLIC",
-      "type": "SYSTEM_PUBLIC",
-      "isSystem": true,
-      "description": "System-managed public knowledge space",
-      "status": 1,
-      "createBy": 0,
-      "createTime": "2026-04-19T10:00:00",
-      "updateTime": "2026-04-19T10:00:00"
-    }
-  ]
-}
-```
+- excludes system spaces
+- for ordinary users, excludes already joined spaces
 
-### 8.2 创建知识空间
+### `POST /api/space/create`
 
-`POST /api/space/create`
-
-请求体:
-
-```json
-{
-  "name": "研发部知识库",
-  "description": "研发部内部资料"
-}
-```
-
-成功响应:
-
-```json
-{
-  "code": 200,
-  "message": "操作成功",
-  "data": {
-    "id": 20,
-    "name": "研发部知识库",
-    "code": null,
-    "type": "BUSINESS",
-    "isSystem": false,
-    "description": "研发部内部资料",
-    "status": 1,
-    "createBy": 1,
-    "createTime": "2026-04-19T10:00:00",
-    "updateTime": "2026-04-19T10:00:00"
-  }
-}
-```
-
-说明:
-
-- 创建者会自动成为该空间 `ADMIN`
-
-### 8.3 更新知识空间
-
-`PUT /api/space/update/{id}`
-
-请求体:
+Super admin only.
 
 ```json
 {
   "name": "研发知识库",
-  "description": "更新后的描述",
-  "status": 1
+  "description": "研发部门空间"
 }
 ```
 
-### 8.4 删除知识空间
+### `PUT /api/space/update/{id}`
 
-`DELETE /api/space/delete/{id}`
+Update a space.
 
-说明:
+### `DELETE /api/space/delete/{id}`
 
-- 系统空间不可删除
-- 空间下仍有文件夹或文档时不可删除
+Super admin only.
 
-成功响应:
+### `GET /api/space/{id}/members`
 
-```json
-{
-  "code": 200,
-  "message": "操作成功",
-  "data": "Knowledge space deleted successfully"
-}
-```
+List members of a space.
 
-### 8.5 获取空间成员
+### `POST /api/space/{id}/members`
 
-`GET /api/space/{id}/members`
-
-成功响应:
-
-```json
-{
-  "code": 200,
-  "message": "操作成功",
-  "data": [
-    {
-      "id": 1,
-      "spaceId": 20,
-      "userId": 1,
-      "role": "ADMIN",
-      "joinTime": "2026-04-19T10:00:00"
-    }
-  ]
-}
-```
-
-### 8.6 添加空间成员
-
-`POST /api/space/{id}/members`
-
-请求体:
+Invite a user directly into the space.
 
 ```json
 {
@@ -619,46 +284,152 @@
 }
 ```
 
-### 8.7 移除空间成员
+Rules:
 
-`DELETE /api/space/{id}/members/{memberUserId}`
+- super admin can invite as `VIEW`, `MEMBER`, `ADMIN`
+- space admin can invite as `VIEW`, `MEMBER`
+- space admin cannot directly invite a user as `ADMIN`
 
-说明:
+### `DELETE /api/space/{id}/members/{memberUserId}`
 
-- 系统空间成员不可移除
+Remove a member from the space.
 
-## 9. 文件夹模块
-
-### 9.1 获取文件夹树
-
-`GET /api/folder/tree?spaceId=20`
-
-成功响应:
+### `PUT /api/space/{id}/members/updateRole/{memberUserId}`
 
 ```json
 {
-  "code": 200,
-  "message": "操作成功",
-  "data": [
-    {
-      "id": 100,
-      "spaceId": 20,
-      "parentId": null,
-      "name": "产品文档",
-      "createBy": 1,
-      "createTime": "2026-04-19T10:00:00",
-      "updateTime": "2026-04-19T10:00:00",
-      "children": []
-    }
-  ]
+  "role": "MEMBER"
 }
 ```
 
-### 9.2 创建文件夹
+Allowed roles:
 
-`POST /api/folder/create`
+- `VIEW`
+- `MEMBER`
+- `ADMIN`
 
-请求体:
+Rules:
+
+- super admin can adjust any member role
+- space admin can adjust lower roles only
+- space admin cannot adjust another `ADMIN`
+- space admin cannot promote a member to `ADMIN`
+- space admin cannot adjust their own role directly
+
+## 8. Space Join Request
+
+### `POST /api/space/request/create`
+
+```json
+{
+  "spaceId": 10,
+  "targetRole": "VIEW",
+  "applyReason": "需要访问该部门空间"
+}
+```
+
+Rules:
+
+- ordinary user only
+- supported targets: `VIEW`, `MEMBER`, `ADMIN`
+- super admin can approve any target role
+- space admin can approve `VIEW`, `MEMBER`
+- space admin cannot approve a join request whose target role is `ADMIN`
+
+### `GET /api/space/request/myList`
+
+List current user's join requests.
+
+### `GET /api/space/request/list`
+
+Query params:
+
+- `spaceId` optional
+
+Allowed:
+
+- super admin
+- space admin for managed spaces
+
+### `PUT /api/space/request/approve/{id}`
+
+Optional body:
+
+```json
+{
+  "reviewReason": "审批通过"
+}
+```
+
+### `PUT /api/space/request/reject/{id}`
+
+Optional body:
+
+```json
+{
+  "reviewReason": "审批驳回原因"
+}
+```
+
+## 9. Space Role Request
+
+### `POST /api/space/roleRequest/create`
+
+```json
+{
+  "spaceId": 10,
+  "targetRole": "ADMIN",
+  "applyReason": "希望在该空间承担管理员职责"
+}
+```
+
+Rules:
+
+- super admin does not need to apply
+- `VIEW` can apply for `MEMBER` or `ADMIN`
+- `MEMBER` can apply for `ADMIN`
+- `ADMIN` should not create another role-upgrade request
+- super admin can approve any target role
+- space admin can approve `VIEW`, `MEMBER`
+- space admin cannot approve `ADMIN`
+
+### `GET /api/space/roleRequest/myList`
+
+List current user's role-upgrade requests.
+
+### `GET /api/space/roleRequest/list`
+
+Query params:
+
+- `spaceId` optional
+
+### `PUT /api/space/roleRequest/approve/{id}`
+
+Optional body:
+
+```json
+{
+  "reviewReason": "审批通过"
+}
+```
+
+### `PUT /api/space/roleRequest/reject/{id}`
+
+Optional body:
+
+```json
+{
+  "reviewReason": "审批驳回原因"
+}
+```
+
+## 10. Folder
+
+### `GET /api/folder/tree?spaceId=20`
+
+Get folder tree under a space.
+
+### `POST /api/folder/create`
 
 ```json
 {
@@ -668,83 +439,92 @@
 }
 ```
 
-### 9.3 更新文件夹
+### `PUT /api/folder/update/{id}`
 
-`PUT /api/folder/update/{id}`
+Update folder name or parent relation.
 
-请求体:
+### `DELETE /api/folder/delete/{id}`
 
-```json
-{
-  "name": "新文件夹名",
-  "parentId": 101
-}
-```
+Delete folder.
 
-### 9.4 删除文件夹
+## 11. User
 
-`DELETE /api/folder/delete/{id}`
+### `GET /api/user/list`
 
-说明:
+Super admin only.
 
-- 有子文件夹时不可删除
-- 有文档时不可删除
+### `GET /api/user/detail/{id}`
 
-成功响应:
+Super admin only.
+
+### `PUT /api/user/updateStatus/{id}`
+
+Super admin only.
 
 ```json
 {
-  "code": 200,
-  "message": "操作成功",
-  "data": "Folder deleted successfully"
+  "status": 0
 }
 ```
 
-## 10. 测试接口
+### `GET /api/user/profile`
 
-### 10.1 健康检查
+Get current user profile.
 
-`GET /api/test/test1`
+### `PUT /api/user/updateProfile`
 
-成功响应:
-
-```text
-Spring Boot backend is running!
+```json
+{
+  "nickname": "张三",
+  "email": "zhangsan@example.com",
+  "avatar": "https://example.com/avatar.png",
+  "phone": "13800000000"
+}
 ```
 
-### 10.2 测试用户查询
+### `PUT /api/user/updatePassword`
 
-`GET /api/test/user`
+```json
+{
+  "oldPassword": "abc12345",
+  "newPassword": "abc12346",
+  "confirmPassword": "abc12346"
+}
+```
 
-说明:
+## 12. Test
 
-- 当前实现为测试用途
-- 返回 `sys_user` 中 ID=1 的用户字符串
-- 不建议在生产环境保留
+### `GET /api/test/test1`
 
-## 11. 错误响应示例
+Health test.
 
-### 11.1 未登录
+### `GET /api/test/user`
+
+Test-only endpoint.
+
+## 13. Unified Error Examples
+
+### unauthenticated
 
 ```json
 {
   "code": 401,
-  "message": "未授权或Token已失效",
+  "message": "Authentication required",
   "data": null
 }
 ```
 
-### 11.2 无权限访问空间
+### access denied
 
 ```json
 {
   "code": 403,
-  "message": "You do not have permission to access this space",
+  "message": "Access denied",
   "data": null
 }
 ```
 
-### 11.3 请求体错误
+### bad request
 
 ```json
 {

@@ -1,5 +1,6 @@
 package com.example.ragbackend.service;
 
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.example.ragbackend.constant.SpaceJoinRequestConstants;
 import com.example.ragbackend.entity.KnowledgeSpace;
 import com.example.ragbackend.entity.SpaceMember;
@@ -13,7 +14,6 @@ import com.example.ragbackend.model.dto.KnowledgeSpaceCreateDTO;
 import com.example.ragbackend.model.dto.KnowledgeSpaceUpdateDTO;
 import com.example.ragbackend.model.dto.SpaceMemberAddDTO;
 import com.example.ragbackend.service.impl.KnowledgeSpaceServiceImpl;
-import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -52,7 +52,7 @@ class KnowledgeSpaceServiceImplTest {
     @Test
     void createSpaceShouldRejectNonSuperAdmin() {
         KnowledgeSpaceCreateDTO dto = new KnowledgeSpaceCreateDTO();
-        dto.setName("研发部");
+        dto.setName("R&D");
 
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> knowledgeSpaceService.createSpace(1L, false, dto));
@@ -61,7 +61,7 @@ class KnowledgeSpaceServiceImplTest {
     }
 
     @Test
-    void addMemberShouldInsertAsMemberRole() {
+    void addMemberShouldUseRequestedRoleForSuperAdmin() {
         SpaceMemberAddDTO dto = new SpaceMemberAddDTO();
         dto.setUserId(2L);
         dto.setRole("ADMIN");
@@ -81,13 +81,80 @@ class KnowledgeSpaceServiceImplTest {
         verify(spaceMemberMapper).insert(argThat((SpaceMember member) ->
                 member.getSpaceId().equals(10L)
                         && member.getUserId().equals(2L)
-                        && SpaceJoinRequestConstants.MEMBER_ROLE.equals(member.getRole())));
+                        && SpaceJoinRequestConstants.ADMIN_ROLE.equals(member.getRole())));
     }
 
     @Test
-    void updateMemberRoleShouldRequireSuperAdmin() {
+    void addMemberShouldRejectSpaceAdminInvitingAdmin() {
+        SpaceMemberAddDTO dto = new SpaceMemberAddDTO();
+        dto.setUserId(2L);
+        dto.setRole("ADMIN");
+
+        KnowledgeSpace space = new KnowledgeSpace();
+        space.setId(10L);
+        doReturn(space).when(knowledgeSpaceService).getById(10L);
+
+        SpaceMember operatorMembership = new SpaceMember();
+        operatorMembership.setSpaceId(10L);
+        operatorMembership.setUserId(5L);
+        operatorMembership.setRole(SpaceJoinRequestConstants.ADMIN_ROLE);
+
+        when(spaceMemberMapper.selectOne(any())).thenReturn(operatorMembership);
+
         BusinessException exception = assertThrows(BusinessException.class,
-                () -> knowledgeSpaceService.updateMemberRole(10L, 2L, 1L, false, "ADMIN"));
+                () -> knowledgeSpaceService.addMember(10L, 5L, false, dto));
+
+        assertEquals(403, exception.getCode());
+    }
+
+    @Test
+    void updateMemberRoleShouldAllowSpaceAdminToAdjustLowerRole() {
+        KnowledgeSpace space = new KnowledgeSpace();
+        space.setId(10L);
+        doReturn(space).when(knowledgeSpaceService).getById(10L);
+
+        SpaceMember targetMember = new SpaceMember();
+        targetMember.setId(8L);
+        targetMember.setSpaceId(10L);
+        targetMember.setUserId(2L);
+        targetMember.setRole(SpaceJoinRequestConstants.VIEW_ROLE);
+
+        SpaceMember operatorMembership = new SpaceMember();
+        operatorMembership.setId(9L);
+        operatorMembership.setSpaceId(10L);
+        operatorMembership.setUserId(5L);
+        operatorMembership.setRole(SpaceJoinRequestConstants.ADMIN_ROLE);
+
+        when(spaceMemberMapper.selectOne(any())).thenReturn(targetMember, operatorMembership);
+
+        SpaceMember updated = knowledgeSpaceService.updateMemberRole(10L, 2L, 5L, false, "MEMBER");
+
+        assertEquals(SpaceJoinRequestConstants.MEMBER_ROLE, updated.getRole());
+        verify(spaceMemberMapper).updateById(targetMember);
+    }
+
+    @Test
+    void updateMemberRoleShouldRejectSpaceAdminPromotingToAdmin() {
+        KnowledgeSpace space = new KnowledgeSpace();
+        space.setId(10L);
+        doReturn(space).when(knowledgeSpaceService).getById(10L);
+
+        SpaceMember targetMember = new SpaceMember();
+        targetMember.setId(8L);
+        targetMember.setSpaceId(10L);
+        targetMember.setUserId(2L);
+        targetMember.setRole(SpaceJoinRequestConstants.MEMBER_ROLE);
+
+        SpaceMember operatorMembership = new SpaceMember();
+        operatorMembership.setId(9L);
+        operatorMembership.setSpaceId(10L);
+        operatorMembership.setUserId(5L);
+        operatorMembership.setRole(SpaceJoinRequestConstants.ADMIN_ROLE);
+
+        when(spaceMemberMapper.selectOne(any())).thenReturn(targetMember, operatorMembership);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> knowledgeSpaceService.updateMemberRole(10L, 2L, 5L, false, "ADMIN"));
 
         assertEquals(403, exception.getCode());
     }

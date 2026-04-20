@@ -43,18 +43,33 @@ public class ChatServiceFactory {
     private Integer maxResults;
 
     private static final String RAG_TEMPLATE =
-            "请根据以下参考资料回答问题。如果资料中没有相关信息，请直接回答不知道。\n\n参考资料：\n%s\n\n--- 原始问题 ---\n%s";
+            """
+            请严格基于以下参考资料回答问题。
+            如果资料中没有足够信息，请明确说明“知识库中未检索到足够信息”。
 
-    public ChatService create(Long userId, boolean isAdmin, boolean ragMode, ChatMemory chatMemory) {
+            参考资料：
+            %s
+
+            用户问题：
+            %s
+            """;
+
+    public ChatService create(Long userId,
+                              boolean isAdmin,
+                              boolean ragMode,
+                              Long spaceId,
+                              Long folderId,
+                              ChatMemory chatMemory) {
         AiServices<ChatService> builder = AiServices.builder(ChatService.class)
                 .chatLanguageModel(ollamaChatModel)
                 .streamingChatLanguageModel(ollamaStreamingChatModel)
                 .chatMemory(chatMemory);
 
-        log.info("ChatServiceFactory userId={}, isAdmin={}, ragMode={}", userId, isAdmin, ragMode);
+        log.info("Create chat service, userId={}, isAdmin={}, ragMode={}, spaceId={}, folderId={}",
+                userId, isAdmin, ragMode, spaceId, folderId);
 
         if (ragMode) {
-            Filter filter = spaceAccessService.buildSearchFilter(userId, isAdmin, null, null);
+            Filter filter = spaceAccessService.buildSearchFilter(userId, isAdmin, spaceId, folderId);
 
             ContentRetriever contentRetriever = EmbeddingStoreContentRetriever.builder()
                     .embeddingStore(embeddingStore)
@@ -66,14 +81,11 @@ public class ChatServiceFactory {
 
             ContentInjector contentInjector = (contents, query) -> {
                 log.info("RAG retrieval finished, query=[{}], hits={}", query.text(), contents.size());
-
                 String joinedContext = contents.stream()
                         .map(Content::textSegment)
                         .map(TextSegment::text)
                         .collect(java.util.stream.Collectors.joining("\n\n"));
-
                 String augmentedPrompt = String.format(RAG_TEMPLATE, joinedContext, query.text());
-                log.info("RAG prompt assembled, contextLength={}", joinedContext.length());
                 return UserMessage.from(augmentedPrompt);
             };
 

@@ -42,7 +42,7 @@ class SpaceAccessServiceImplTest {
 
     @Test
     void shouldCheckSpaceAccessByMembership() {
-        when(spaceMemberMapper.selectCount(any())).thenReturn(1L).thenReturn(0L);
+        when(spaceMemberMapper.selectOne(any())).thenReturn(createMember(1L, 10L)).thenReturn(null);
 
         assertTrue(spaceAccessService.canAccessSpace(1L, 10L));
         assertFalse(spaceAccessService.canAccessSpace(1L, 30L));

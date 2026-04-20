@@ -1,6 +1,7 @@
 package com.example.ragbackend.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.example.ragbackend.constant.SpaceJoinRequestConstants;
 import com.example.ragbackend.entity.SpaceMember;
 import com.example.ragbackend.mapper.SpaceMemberMapper;
 import com.example.ragbackend.service.SpaceAccessService;
@@ -36,22 +37,38 @@ public class SpaceAccessServiceImpl implements SpaceAccessService {
         if (spaceId == null) {
             return true;
         }
-        return spaceMemberMapper.selectCount(new LambdaQueryWrapper<SpaceMember>()
+        return getMembership(userId, spaceId) != null;
+    }
+
+    @Override
+    public SpaceMember getMembership(Long userId, Long spaceId) {
+        if (userId == null || spaceId == null) {
+            return null;
+        }
+        return spaceMemberMapper.selectOne(new LambdaQueryWrapper<SpaceMember>()
                 .eq(SpaceMember::getUserId, userId)
-                .eq(SpaceMember::getSpaceId, spaceId)) > 0;
+                .eq(SpaceMember::getSpaceId, spaceId)
+                .last("LIMIT 1"));
+    }
+
+    @Override
+    public boolean canUpload(Long userId, Long spaceId, boolean isSuperAdmin) {
+        if (isSuperAdmin) {
+            return true;
+        }
+        SpaceMember membership = getMembership(userId, spaceId);
+        if (membership == null) {
+            return false;
+        }
+        return SpaceJoinRequestConstants.ADMIN_ROLE.equalsIgnoreCase(membership.getRole())
+                || SpaceJoinRequestConstants.MEMBER_ROLE.equalsIgnoreCase(membership.getRole());
     }
 
     @Override
     public Filter buildSearchFilter(Long userId, boolean isAdmin, Long spaceId, Long folderId) {
-        Filter filter;
-        if (isAdmin) {
-            filter = buildAdminFilter(spaceId);
-        } else {
-            filter = buildAccessibleSpacesFilter(userId, spaceId);
-        }
-
-        Filter folderFilter = folderId == null ? null : metadataKey("folder_id").isEqualTo(String.valueOf(folderId));
-        if (folderFilter != null) {
+        Filter filter = isAdmin ? buildAdminFilter(spaceId) : buildAccessibleSpacesFilter(userId, spaceId);
+        if (folderId != null) {
+            Filter folderFilter = metadataKey("folder_id").isEqualTo(String.valueOf(folderId));
             filter = filter == null ? folderFilter : filter.and(folderFilter);
         }
         return filter;

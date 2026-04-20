@@ -3,13 +3,13 @@ package com.example.ragbackend.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.example.ragbackend.common.Result;
+import com.example.ragbackend.constant.SpaceJoinRequestConstants;
 import com.example.ragbackend.entity.Document;
 import com.example.ragbackend.entity.Folder;
 import com.example.ragbackend.entity.SpaceMember;
 import com.example.ragbackend.exception.BusinessException;
 import com.example.ragbackend.mapper.DocumentMapper;
 import com.example.ragbackend.mapper.FolderMapper;
-import com.example.ragbackend.mapper.SpaceMemberMapper;
 import com.example.ragbackend.service.DocumentProcessingService;
 import com.example.ragbackend.service.DocumentService;
 import com.example.ragbackend.service.SpaceAccessService;
@@ -38,6 +38,11 @@ import static dev.langchain4j.store.embedding.filter.MetadataFilterBuilder.metad
 @Service
 public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> implements DocumentService {
 
+    private static final int STATUS_PENDING = 0;
+    private static final int STATUS_PROCESSING = 1;
+    private static final int STATUS_COMPLETED = 2;
+    private static final int STATUS_FAILED = 3;
+
     @Autowired
     private MinioClient minioClient;
 
@@ -46,9 +51,6 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
 
     @Autowired
     private EmbeddingStore<TextSegment> embeddingStore;
-
-    @Autowired
-    private SpaceMemberMapper spaceMemberMapper;
 
     @Autowired
     private FolderMapper folderMapper;
@@ -63,7 +65,7 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
     @Transactional
     public Result<?> uploadDocument(MultipartFile file, Long userId, Long spaceId, Long folderId) {
         try {
-            validateDocumentOwnershipPlacement(userId, spaceId, folderId);
+            validateUploadPermission(userId, spaceId, folderId);
 
             String originalFilename = file.getOriginalFilename();
             String extension = "";
@@ -89,25 +91,20 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
             document.setMinioPath(minioPath);
             document.setFileSize(file.getSize());
             document.setFileType(resolveFileType(originalFilename));
-            document.setStatus(0);
+            document.setMimeType(file.getContentType());
+            document.setStatus(STATUS_PENDING);
             document.setIsDeleted(false);
             document.setDeleteTime(null);
             document.setErrorMessage(null);
+            document.setRetryCount(0);
+            document.setLastRetryTime(null);
             document.setCreateTime(LocalDateTime.now());
             document.setUpdateTime(LocalDateTime.now());
-            this.save(document);
+            save(document);
 
-            if (TransactionSynchronizationManager.isActualTransactionActive()) {
-                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                    @Override
-                    public void afterCommit() {
-                        documentProcessingService.processDocumentAsync(document.getId());
-                    }
-                });
-            } else {
-                documentProcessingService.processDocumentAsync(document.getId());
-            }
-
+            registerAsyncProcessing(document.getId());
+            log.info("Document uploaded, userId={}, documentId={}, spaceId={}, folderId={}, fileName={}",
+                    userId, document.getId(), spaceId, folderId, originalFilename);
             return Result.success(document);
         } catch (BusinessException ex) {
             throw ex;
@@ -125,13 +122,8 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
                 .orderByDesc(Document::getCreateTime);
 
         if (SecurityUtils.isAdmin()) {
-            if (spaceId != null) {
-                queryWrapper.eq(Document::getSpaceId, spaceId);
-            }
-            if (folderId != null) {
-                queryWrapper.eq(Document::getFolderId, folderId);
-            }
-            return Result.success(this.list(queryWrapper));
+            applySpaceAndFolderFilter(queryWrapper, spaceId, folderId);
+            return Result.success(list(queryWrapper));
         }
 
         List<Long> accessibleSpaceIds = spaceAccessService.getAccessibleSpaceIds(userId);
@@ -151,27 +143,20 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
             queryWrapper.eq(Document::getFolderId, folderId);
         }
 
-        return Result.success(this.list(queryWrapper));
+        return Result.success(list(queryWrapper));
     }
 
     @Override
     @Transactional
     public Result<?> deleteDocument(Long id, Long userId) {
-        Document document = this.getById(id);
-        if (document == null || Boolean.TRUE.equals(document.getIsDeleted())) {
-            return Result.error("Document record does not exist");
-        }
-        if (!document.getUserId().equals(userId) && !SecurityUtils.isAdmin()) {
-            return Result.error("You do not have permission to delete this document");
-        }
+        Document document = getAccessibleDocument(id, userId);
+        ensureDocumentManagePermission(document, userId);
 
         try {
-            minioClient.removeObject(
-                    RemoveObjectArgs.builder()
-                            .bucket(bucketName)
-                            .object(document.getMinioPath())
-                            .build()
-            );
+            minioClient.removeObject(RemoveObjectArgs.builder()
+                    .bucket(bucketName)
+                    .object(document.getMinioPath())
+                    .build());
         } catch (Exception ex) {
             log.error("Failed to delete MinIO object, documentId={}, error={}", id, ex.getMessage(), ex);
         }
@@ -182,24 +167,63 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
             log.error("Failed to delete document vectors, documentId={}, error={}", id, ex.getMessage(), ex);
         }
 
-        this.removeById(id);
+        document.setIsDeleted(true);
+        document.setDeleteTime(LocalDateTime.now());
+        document.setUpdateTime(LocalDateTime.now());
+        updateById(document);
         return Result.success("Document deleted successfully");
     }
 
-    private void validateDocumentOwnershipPlacement(Long userId, Long spaceId, Long folderId) {
+    @Override
+    @Transactional
+    public Result<?> retryDocument(Long id, Long userId) {
+        Document document = getAccessibleDocument(id, userId);
+        ensureDocumentManagePermission(document, userId);
+
+        if (!isFailedStatus(document.getStatus())) {
+            throw new BusinessException(400, "Only failed documents can be retried");
+        }
+
+        try {
+            embeddingStore.removeAll(metadataKey("document_id").isEqualTo(String.valueOf(id)));
+        } catch (Exception ex) {
+            log.warn("Failed to clear existing vectors before retry, documentId={}, error={}", id, ex.getMessage());
+        }
+
+        document.setStatus(STATUS_PENDING);
+        document.setErrorMessage(null);
+        document.setRetryCount(document.getRetryCount() == null ? 1 : document.getRetryCount() + 1);
+        document.setLastRetryTime(LocalDateTime.now());
+        document.setUpdateTime(LocalDateTime.now());
+        updateById(document);
+        registerAsyncProcessing(id);
+        log.info("Retry document processing, userId={}, documentId={}, retryCount={}",
+                userId, id, document.getRetryCount());
+        return Result.success(document);
+    }
+
+    @Override
+    public Document getAccessibleDocument(Long id, Long userId) {
+        Document document = getById(id);
+        if (document == null || Boolean.TRUE.equals(document.getIsDeleted())) {
+            throw new BusinessException(404, "Document record does not exist");
+        }
+        if (SecurityUtils.isAdmin()) {
+            return document;
+        }
+        if (!spaceAccessService.canAccessSpace(userId, document.getSpaceId())) {
+            throw new BusinessException(403, "You do not have permission to access this document");
+        }
+        return document;
+    }
+
+    private void validateUploadPermission(Long userId, Long spaceId, Long folderId) {
         if (spaceId == null) {
             throw new BusinessException(400, "spaceId is required");
         }
-
-        if (!SecurityUtils.isAdmin()) {
-            SpaceMember membership = spaceMemberMapper.selectOne(new LambdaQueryWrapper<SpaceMember>()
-                    .eq(SpaceMember::getSpaceId, spaceId)
-                    .eq(SpaceMember::getUserId, userId));
-            if (membership == null) {
-                throw new BusinessException(403, "You do not belong to the target knowledge space");
-            }
+        if (!spaceAccessService.canUpload(userId, spaceId, SecurityUtils.isAdmin())) {
+            throw new BusinessException(403, "You do not have upload permission in the target knowledge space");
         }
-
         if (folderId != null) {
             Folder folder = folderMapper.selectById(folderId);
             if (folder == null) {
@@ -208,6 +232,45 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
             if (!folder.getSpaceId().equals(spaceId)) {
                 throw new BusinessException(400, "Folder does not belong to the specified space");
             }
+        }
+    }
+
+    private void ensureDocumentManagePermission(Document document, Long userId) {
+        if (SecurityUtils.isAdmin()) {
+            return;
+        }
+        if (userId.equals(document.getUserId())) {
+            return;
+        }
+        SpaceMember membership = spaceAccessService.getMembership(userId, document.getSpaceId());
+        if (membership == null || !SpaceJoinRequestConstants.ADMIN_ROLE.equalsIgnoreCase(membership.getRole())) {
+            throw new BusinessException(403, "You do not have permission to manage this document");
+        }
+    }
+
+    private void applySpaceAndFolderFilter(LambdaQueryWrapper<Document> queryWrapper, Long spaceId, Long folderId) {
+        if (spaceId != null) {
+            queryWrapper.eq(Document::getSpaceId, spaceId);
+        }
+        if (folderId != null) {
+            queryWrapper.eq(Document::getFolderId, folderId);
+        }
+    }
+
+    private boolean isFailedStatus(Integer status) {
+        return status != null && status == STATUS_FAILED;
+    }
+
+    private void registerAsyncProcessing(Long documentId) {
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    documentProcessingService.processDocumentAsync(documentId);
+                }
+            });
+        } else {
+            documentProcessingService.processDocumentAsync(documentId);
         }
     }
 

@@ -27,6 +27,10 @@ import java.util.List;
 @RequiredArgsConstructor
 public class DocumentProcessingServiceImpl implements DocumentProcessingService {
 
+    private static final int STATUS_PROCESSING = 1;
+    private static final int STATUS_COMPLETED = 2;
+    private static final int STATUS_FAILED = 3;
+
     private final DocumentMapper documentMapper;
     private final MinioClient minioClient;
     private final DashScopeEmbeddingService dashScopeEmbeddingService;
@@ -39,13 +43,13 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
     @Async("documentProcessingExecutor")
     public void processDocumentAsync(Long documentId) {
         Document document = documentMapper.selectById(documentId);
-        if (document == null) {
-            log.warn("Document record not found, skip processing, documentId={}", documentId);
+        if (document == null || Boolean.TRUE.equals(document.getIsDeleted())) {
+            log.warn("Document not found for processing, documentId={}", documentId);
             return;
         }
 
         try {
-            document.setStatus(1);
+            document.setStatus(STATUS_PROCESSING);
             document.setUpdateTime(LocalDateTime.now());
             documentMapper.updateById(document);
 
@@ -72,23 +76,22 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
                     }
                 });
 
-                int totalSegments = segments.size();
                 int batchSize = 100;
+                int totalSegments = segments.size();
                 int totalBatches = (int) Math.ceil((double) totalSegments / batchSize);
-
                 for (int i = 0; i < totalSegments; i += batchSize) {
                     int end = Math.min(i + batchSize, totalSegments);
                     List<TextSegment> batchSegments = segments.subList(i, end);
                     List<Embedding> batchEmbeddings = dashScopeEmbeddingService.embedSegments(batchSegments);
                     embeddingStore.addAll(batchEmbeddings, batchSegments);
-                    log.info("Processed document batch {}/{} for documentId={}", (i / batchSize) + 1, totalBatches, documentId);
+                    log.info("Processed document batch {}/{}, documentId={}", (i / batchSize) + 1, totalBatches, documentId);
                 }
 
-                document.setStatus(2);
+                document.setStatus(STATUS_COMPLETED);
                 document.setErrorMessage(null);
             }
         } catch (Exception ex) {
-            document.setStatus(3);
+            document.setStatus(STATUS_FAILED);
             document.setErrorMessage(ex.getMessage());
             log.error("Document processing failed, documentId={}, error={}", documentId, ex.getMessage(), ex);
         } finally {
