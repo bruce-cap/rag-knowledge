@@ -27,6 +27,8 @@ public class KnowledgeSpaceController {
         return Result.success(knowledgeSpaceService.listAccessibleSpaces(userId, SecurityUtils.isAdmin()));
     }
 
+
+    // 列出当前用户所有可以加入的空间
     @GetMapping("/listAll")
     public Result<List<KnowledgeSpace>> listAllSpaces() {
         Long userId = SecurityUtils.getCurrentUserId();

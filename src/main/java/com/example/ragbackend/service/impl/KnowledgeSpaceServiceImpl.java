@@ -112,8 +112,8 @@ public class KnowledgeSpaceServiceImpl extends ServiceImpl<KnowledgeSpaceMapper,
 
     @Override
     public KnowledgeSpace updateSpace(Long spaceId, Long userId, boolean isSuperAdmin, KnowledgeSpaceUpdateDTO dto) {
-        ensureSuperAdmin(isSuperAdmin);
         KnowledgeSpace space = getRequiredSpace(spaceId);
+        ensureSpaceManagePermission(spaceId, userId, isSuperAdmin);
 
         if (dto.getName() != null) {
             validateSpaceName(dto.getName());

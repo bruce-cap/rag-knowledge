@@ -10,6 +10,7 @@ import com.example.ragbackend.mapper.FolderMapper;
 import com.example.ragbackend.mapper.SpaceMemberMapper;
 import com.example.ragbackend.mapper.UserMapper;
 import com.example.ragbackend.model.dto.KnowledgeSpaceCreateDTO;
+import com.example.ragbackend.model.dto.KnowledgeSpaceUpdateDTO;
 import com.example.ragbackend.model.dto.SpaceMemberAddDTO;
 import com.example.ragbackend.service.impl.KnowledgeSpaceServiceImpl;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
@@ -89,6 +90,29 @@ class KnowledgeSpaceServiceImplTest {
                 () -> knowledgeSpaceService.updateMemberRole(10L, 2L, 1L, false, "ADMIN"));
 
         assertEquals(403, exception.getCode());
+    }
+
+    @Test
+    void updateSpaceShouldAllowSpaceAdmin() {
+        KnowledgeSpace space = new KnowledgeSpace();
+        space.setId(10L);
+        space.setName("Old Name");
+        doReturn(space).when(knowledgeSpaceService).getById(10L);
+
+        SpaceMember adminMember = new SpaceMember();
+        adminMember.setSpaceId(10L);
+        adminMember.setUserId(5L);
+        adminMember.setRole(SpaceJoinRequestConstants.ADMIN_ROLE);
+        when(spaceMemberMapper.selectOne(any())).thenReturn(adminMember);
+        doReturn(true).when(knowledgeSpaceService).updateById(any(KnowledgeSpace.class));
+
+        KnowledgeSpaceUpdateDTO dto = new KnowledgeSpaceUpdateDTO();
+        dto.setName("New Name");
+
+        KnowledgeSpace updated = knowledgeSpaceService.updateSpace(10L, 5L, false, dto);
+
+        assertEquals("New Name", updated.getName());
+        verify(knowledgeSpaceService).updateById(updated);
     }
 
     @Test
