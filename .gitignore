@@ -32,6 +32,9 @@ build/
 ### VS Code ###
 .vscode/
 
+### Local tool state ###
+.claude/
+
 ### Local secrets ###
 .env
 .env.*
