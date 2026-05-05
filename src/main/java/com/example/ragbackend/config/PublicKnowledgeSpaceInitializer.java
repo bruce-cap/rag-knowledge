@@ -3,7 +3,9 @@ package com.example.ragbackend.config;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.ragbackend.constant.SystemSpaceConstants;
 import com.example.ragbackend.entity.KnowledgeSpace;
+import com.example.ragbackend.entity.User;
 import com.example.ragbackend.mapper.KnowledgeSpaceMapper;
+import com.example.ragbackend.mapper.UserMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
@@ -16,9 +18,11 @@ import java.time.LocalDateTime;
 public class PublicKnowledgeSpaceInitializer implements ApplicationRunner {
 
     private final KnowledgeSpaceMapper knowledgeSpaceMapper;
+    private final UserMapper userMapper;
 
-    public PublicKnowledgeSpaceInitializer(KnowledgeSpaceMapper knowledgeSpaceMapper) {
+    public PublicKnowledgeSpaceInitializer(KnowledgeSpaceMapper knowledgeSpaceMapper, UserMapper userMapper) {
         this.knowledgeSpaceMapper = knowledgeSpaceMapper;
+        this.userMapper = userMapper;
     }
 
     @Override
@@ -37,10 +41,21 @@ public class PublicKnowledgeSpaceInitializer implements ApplicationRunner {
         publicSpace.setIsSystem(true);
         publicSpace.setDescription("System-managed public knowledge space");
         publicSpace.setStatus(1);
-        publicSpace.setCreateBy(SystemSpaceConstants.SYSTEM_OPERATOR_ID);
+        publicSpace.setCreateBy(resolveSystemAdminId());
         publicSpace.setCreateTime(LocalDateTime.now());
         publicSpace.setUpdateTime(LocalDateTime.now());
         knowledgeSpaceMapper.insert(publicSpace);
         log.info("Public knowledge space initialized, id={}", publicSpace.getId());
+    }
+
+    private Long resolveSystemAdminId() {
+        User admin = userMapper.selectOne(new LambdaQueryWrapper<User>()
+                .eq(User::getUsername, SystemSpaceConstants.SYSTEM_ADMIN_USERNAME)
+                .eq(User::getRole, SystemSpaceConstants.SYSTEM_ADMIN_ROLE)
+                .last("LIMIT 1"));
+        if (admin == null) {
+            throw new IllegalStateException("System super admin user was not found for public knowledge space initialization");
+        }
+        return admin.getId();
     }
 }

@@ -150,6 +150,7 @@ CREATE TABLE `knowledge_space` (
   `type` varchar(30) NOT NULL DEFAULT 'BUSINESS',
   `is_system` tinyint(1) NOT NULL DEFAULT '0',
   PRIMARY KEY (`id`),
+  KEY `idx_knowledge_space_create_by` (`create_by`),
   UNIQUE KEY `uk_knowledge_space_code` (`code`)
 ) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -269,6 +270,10 @@ CREATE TABLE `sys_user` (
   KEY `idx_sys_user_phone` (`phone`)
 ) ENGINE=InnoDB AUTO_INCREMENT=10 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+ALTER TABLE `knowledge_space`
+  ADD CONSTRAINT `fk_knowledge_space_creator` FOREIGN KEY (`create_by`) REFERENCES `sys_user` (`id`);
+
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
